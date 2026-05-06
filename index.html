@@ -3,368 +3,682 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Inca Conquest - Interactive Quiz</title>
+    <title>The Conquest of the Incas - Assessment</title>
     
-    <!-- React & Babel for JSX -->
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    
-    <!-- Tailwind CSS -->
+    <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Firebase Compat -->
-    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore-compat.js"></script>
+    <!-- React and ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; overflow-x: hidden; background-color: #0f172a; }
-        .no-select { user-select: none; -webkit-user-select: none; }
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #0f172a; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-        .video-overlay-enter { animation: fadeIn 0.3s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
-    </style>
+    <!-- Babel for JSX compilation in the browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
-<body class="text-slate-100 no-select">
-    <div id="root">
-        <!-- Fallback loader in case JS fails -->
-        <div style="display: flex; height: 100vh; align-items: center; justify-content: center; flex-direction: column;">
-            <div style="width: 40px; height: 40px; border: 4px solid #f59e0b; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
-            <p style="margin-top: 15px; color: #94a3b8; font-family: sans-serif;">Loading Quiz Environment...</p>
-        </div>
-    </div>
-
-    <style>
-        @keyframes spin { to { transform: rotate(360deg); } }
-    </style>
+<body class="bg-slate-900 text-white min-h-screen flex items-start sm:items-center justify-center p-4 py-10 selection:bg-amber-500/30">
+    <div id="root" class="w-full max-w-5xl"></div>
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // --- QUIZ DATA ---
-        const quizData = [
-            { time: 60, question: "What did Pizarro do to challenge his men on the island in 1527?", options: ["Burned the ships", "Drew a line in the sand", "Executed the mutineers", "Ordered a fast"], answer: 1 },
-            { time: 150, question: "What was the name of the Empire Pizarro was seeking?", options: ["Aztec", "Maya", "Inca", "Olmec"], answer: 2 },
-            { time: 270, question: "According to the video, what did the Incas worship as their primary God?", options: ["The Moon", "The Earth", "The Sun", "The Ocean"], answer: 2 },
-            { time: 340, question: "Who was the great Inca ruler Pizarro was heading to meet?", options: ["Montezuma", "Atahualpa", "Manco Inca", "Huayna Capac"], answer: 1 },
-            { time: 460, question: "What language did Pizarro have his two Indian students learn?", options: ["Spanish", "Quechua", "Latin", "Portuguese"], answer: 0 },
-            { time: 520, question: "What vegetable did the Spaniards taste for the first time in the Andes?", options: ["Corn", "Tomato", "Potato", "Chili Pepper"], answer: 2 },
-            { time: 610, question: "Approximately how many men did Pizarro have when entering the Empire?", options: ["1,000", "5,000", "164", "500"], answer: 2 },
-            { time: 700, question: "How long were the roads of the Inca Empire?", options: ["500 miles", "3,000 miles", "10,000 miles", "1,000 miles"], answer: 1 },
-            { time: 850, question: "What city was the Inca ruler staying in when Pizarro arrived?", options: ["Cusco", "Lima", "Cajamarca", "Quito"], answer: 2 },
-            { time: 920, question: "How many soldiers were estimated to be in Atahualpa's army?", options: ["5,000", "15,000", "30,000", "80,000"], answer: 2 },
-            { time: 1040, question: "Where was Atahualpa when the two worlds first met?", options: ["The Royal Palace", "The Hot Springs", "A Temple", "A Battleground"], answer: 1 },
-            { time: 1110, question: "What did Atahualpa's spy report about the Spaniards?", options: ["They were gods", "They were immortal", "They were not gods and could die", "They were from the stars"], answer: 2 },
-            { time: 1190, question: "What did the Inca spy notice about the Spanish 'Barber'?", options: ["He was a great fighter", "He had powers to rejuvenate people", "He was a spy", "He was the leader"], answer: 1 },
-            { time: 1300, question: "What unique material was Atahualpa's royal cloak made of?", options: ["Llama wool", "Gold thread", "Vampire bat skins", "Parrot feathers"], answer: 2 },
-            { time: 1420, question: "What did the priest Valde offer to Atahualpa first?", options: ["A sword", "A gold coin", "A prayer book/Bible", "A map"], answer: 2 },
-            { time: 1495, question: "What action by Atahualpa served as the pretext for Pizarro to attack?", options: ["He spat on the ground", "He threw the book on the floor", "He drew his sword", "He ordered his men to charge"], answer: 1 },
-            { time: 1540, question: "What was the result of the initial Spanish attack in the square?", options: ["Spanish retreat", "A peaceful truce", "Massacre of Incas and capture of Atahualpa", "Capture of Pizarro"], answer: 2 },
-            { time: 1610, question: "What did Atahualpa offer as a ransom for his freedom?", options: ["A mountain of silver", "To fill a room with gold", "His daughter in marriage", "The city of Cusco"], answer: 1 },
-            { time: 1740, question: "Who was Waman Poma?", options: ["A Spanish priest", "An Inca general", "An author of Inca descent", "Pizarro's brother"], answer: 2 },
-            { time: 1810, question: "What phrase does Waman Poma use to describe the conquest?", options: ["The new dawn", "The world upside down", "The golden age", "The great liberation"], answer: 1 },
-            { time: 2000, question: "What happened to Atahualpa after the ransom was paid?", options: ["He was released", "He was made a governor", "He was put on trial and executed", "He escaped"], answer: 2 },
-            { time: 2160, question: "What city was the naval/sacred center of the Inca Empire?", options: ["Lima", "Cusco", "Tiahuanaco", "Chan Chan"], answer: 1 },
-            { time: 2285, question: "What transition did the fall of Cusco represent in global history?", options: ["The end of sacred time", "The start of the industrial age", "The spread of democracy", "The end of the Renaissance"], answer: 0 },
-            { time: 2435, question: "Who was the 'puppet king' appointed by the Pizarros?", options: ["Atahualpa", "Manco Inca", "Huayna Capac", "Tupac Amaru"], answer: 1 },
-            { time: 2520, question: "What drove Manco Inca to lead a war of liberation?", options: ["Religious vision", "Desire for gold", "Spanish insults and mistreatment", "A request from the Pope"], answer: 2 },
-            { time: 2650, question: "During the siege of Cusco, which Spanish brother was killed?", options: ["Francisco", "Hernando", "Juan", "Gonzalo"], answer: 2 },
-            { time: 2880, question: "Where did the mummies of the dead Incas 'greet the sun'?", options: ["Cusco", "Cajamarca", "Machu Picchu", "Lima"], answer: 2 },
-            { time: 3150, question: "Where did Manco Inca win a pitched battle against the Spaniards?", options: ["Cusco", "Ollantaytambo", "Lima", "Quito"], answer: 1 },
-            { time: 3500, question: "What was the 'Lost City' where the Incas made their final stand?", options: ["Machu Picchu", "Vilcabamba", "Cusco", "Nazca"], answer: 1 },
-            { time: 4460, question: "How did Manco Inca eventually die?", options: ["Old age", "Died in battle", "Stabbed by Spanish guests while playing a game", "Poisoned by his son"], answer: 2 }
+        // Approx 49 minutes, 01 seconds (BBC Conquest of the Incas)
+        const MAX_ALLOWED_TIME = 2941; 
+        const VIDEO_ID = '9iImmVKrWzI';
+
+        // 30 Questions synchronized to the Inca Documentary transcript
+        const QUIZ_QUESTIONS = [
+            { id: 1, timestamp: 70, text: "What did Pizarro do in 1527 to test the loyalty of his men?", options: ["Built a fortress", "Burned the ships", "Drew a line in the sand", "Executed the mutineers"], correctIndex: 2 },
+            { id: 2, timestamp: 170, text: "Unlike the Europeans, the Incas lived in 'sacred time' where they worshipped what as God?", options: ["The Moon", "The Sun", "The Earth", "The Ocean"], correctIndex: 1 },
+            { id: 3, timestamp: 215, text: "Who was with Pizarro on his return to Peru in 1532?", options: ["Surviving soldiers and 4 of his brothers", "The King of Spain", "1,000 professional mercenaries", "No one; he returned alone"], correctIndex: 0 },
+            { id: 4, timestamp: 290, text: "Pizarro taught Spanish to two Indians for what reason?", options: ["To convert them to Christianity", "To help them escape", "To use them as interpreters for Quechua", "To teach them how to read the Bible"], correctIndex: 2 },
+            { id: 5, timestamp: 325, text: "What crop did the Spaniards taste for the first time in the Andes?", options: ["Corn", "Tomato", "Potato", "Chili Peppers"], correctIndex: 2 },
+            { id: 6, timestamp: 375, text: "Approximately how many men did Pizarro have when he entered the Inca Empire?", options: ["164 men", "1,000 men", "5,000 men", "10,000 men"], correctIndex: 0 },
+            { id: 7, timestamp: 425, text: "How long did the roads of the Inca Empire stretch?", options: ["500 miles", "1,000 miles", "3,000 miles", "10,000 miles"], correctIndex: 2 },
+            { id: 8, timestamp: 500, text: "What did Pizarro's secretary note about the Inca hill fortresses?", options: ["They were made of wood", "They were easily destroyed", "They were built with steep rocks on either side", "They were empty"], correctIndex: 2 },
+            { id: 9, timestamp: 555, text: "How many Inca soldiers were estimated to be at Cajamarca?", options: ["5,000", "15,000", "30,000", "100,000"], correctIndex: 2 },
+            { id: 10, timestamp: 615, text: "Where was Atahualpa taking the waters when the two worlds met?", options: ["The Royal Palace", "A Temple", "The Hot Springs", "A Battleground"], correctIndex: 2 },
+            { id: 11, timestamp: 690, text: "What was the first point of the Inca spy's report to Atahualpa?", options: ["The Spanish were gods", "They were immortal", "They are not gods", "They are giants"], correctIndex: 2 },
+            { id: 12, timestamp: 730, text: "What 'power' did the Inca spy believe the Spanish Barber possessed?", options: ["He could see the future", "He could rejuvenate people with fresh skin", "He could fly", "He could turn lead into gold"], correctIndex: 1 },
+            { id: 13, timestamp: 800, text: "What was Atahualpa's royal cloak made of?", options: ["Llama wool", "Gold thread", "Vampire bat skins", "Fine cotton"], correctIndex: 2 },
+            { id: 14, timestamp: 860, text: "What did the priest Valde ask the Inca to do first?", options: ["Surrender his gold", "Abandon his religion and embrace Christ", "Draw a map of the empire", "Kill his generals"], correctIndex: 1 },
+            { id: 15, timestamp: 895, text: "What did Atahualpa do with the Bible/Prayer book?", options: ["He kissed it", "He threw it on the floor", "He tried to read it", "He hid it in his cloak"], correctIndex: 1 },
+            { id: 16, timestamp: 935, text: "How many Incas reportedly died during the massacre at the square?", options: ["60", "600", "6,000", "60,000"], correctIndex: 2 },
+            { id: 17, timestamp: 975, text: "What was Atahualpa's ransom offer?", options: ["To fill a room with gold", "To give away his crown", "To become a Spanish subject", "To reveal the location of El Dorado"], correctIndex: 0 },
+            { id: 18, timestamp: 1065, text: "Who was Waman Poma?", options: ["A Spanish priest", "An Inca general", "An author of Inca descent", "Pizarro's secretary"], correctIndex: 2 },
+            { id: 19, timestamp: 1095, text: "How did Waman Poma describe the conquest?", options: ["A glorious victory", "A necessary evil", "The world upside down", "A spiritual awakening"], correctIndex: 2 },
+            { id: 20, timestamp: 1210, text: "Despite paying the ransom, what was Atahualpa's fate?", options: ["He was released", "He was put on trial and executed", "He escaped to the jungle", "He was sent to Spain"], correctIndex: 1 },
+            { id: 21, timestamp: 1335, text: "What city was the navel of the earth and sacred center of the Inca world?", options: ["Lima", "Quito", "Cusco", "Machu Picchu"], correctIndex: 2 },
+            { id: 22, timestamp: 1370, text: "The fall of Cusco symbolized the triumph of what kind of time?", options: ["Sacred time", "Profane time", "Eternal time", "Modern time"], correctIndex: 1 },
+            { id: 23, timestamp: 1475, text: "Who did Pizarro appoint as the puppet King?", options: ["Atahualpa", "Manco Inca", "Waman Poma", "Huayna Capac"], correctIndex: 1 },
+            { id: 24, timestamp: 1515, text: "Manco Inca described the foreigners as being sent by whom?", options: ["God", "The King of Spain", "The Devil", "The Sun"], correctIndex: 2 },
+            { id: 25, timestamp: 1595, text: "Where did Spanish survival hang during the Inca uprising?", options: ["The taking of the fortress at Sacsayhuamán", "The escape to the coast", "A naval battle", "A deal with the Aztecs"], correctIndex: 0 },
+            { id: 26, timestamp: 1735, text: "Machu Picchu served as a place where what could greet the sun?", options: ["The Inca Army", "Living priests", "The mummies of dead Incas", "Spanish captives"], correctIndex: 2 },
+            { id: 27, timestamp: 1900, text: "What made the mountain seem like it was 'about to crash' on the Spaniards?", options: ["An earthquake", "A landslide", "The roar of the Inca Army", "A volcanic eruption"], correctIndex: 2 },
+            { id: 28, timestamp: 1995, text: "Manco Inca's speech told his people to keep what hidden in their hearts?", options: ["Hatred for Pizarro", "The location of gold", "Their ceremonies and gods", "Plans for a new city"], correctIndex: 2 },
+            { id: 29, timestamp: 2540, text: "What act of revenge did Gonzalo Pizarro take against Manco?", options: ["Destroyed Cusco", "Stole all the gold", "Killed Manco's wife", "Burned the jungle"], correctIndex: 2 },
+            { id: 30, timestamp: 2675, text: "How was Manco Inca eventually killed?", options: ["In battle", "By a snake bite", "Stabbed by Spanish guests during a game", "Executed by his own people"], correctIndex: 2 }
         ];
 
-        function App() {
-            const [services, setServices] = useState({ auth: null, db: null });
-            const [user, setUser] = useState(null);
-            const [studentInfo, setStudentInfo] = useState({ firstName: '', lastName: '', period: '' });
-            const [view, setView] = useState('login'); 
-            const [quizStarted, setQuizStarted] = useState(false);
-            const [currentQuestionIndex, setCurrentQuestionIndex] = useState(null);
-            const [score, setScore] = useState(0);
-            const [completed, setCompleted] = useState(false);
-            const [cheatAlerts, setCheatAlerts] = useState(0);
-            const [results, setResults] = useState([]);
-            const [furthestWatched, setFurthestWatched] = useState(0);
-            const [isLoading, setIsLoading] = useState(true);
-            const [error, setError] = useState(null);
+        // Salt for Local Storage obfuscation
+        const SALT = "inca_v1_";
+
+        const encodeBase64 = (str) => {
+            try { return btoa(unescape(encodeURIComponent(str))); } catch(e) { return btoa(str); }
+        };
+        const decodeBase64 = (str) => {
+            try { return decodeURIComponent(escape(atob(str))); } catch(e) { return atob(str); }
+        };
+
+        const getSavedNum = (key) => {
+            try {
+                const saved = localStorage.getItem(key);
+                if (saved) return parseFloat(decodeBase64(saved).replace(SALT, '')) || 0;
+            } catch(e) {}
+            return 0;
+        };
+        
+        const getSavedStr = (key) => {
+            try {
+                const saved = localStorage.getItem(key);
+                if (saved) return decodeBase64(saved).replace(SALT, '');
+            } catch(e) {}
+            return "";
+        };
+
+        const getSavedAnswers = () => {
+            try {
+                const saved = localStorage.getItem('inca_video_answers_hash');
+                if (saved) return JSON.parse(decodeBase64(saved).replace(SALT, ''));
+            } catch(e) {}
+            return {};
+        };
+
+        const TEACHER_PIN = "1234";
+
+        const App = () => {
+            const [view, setView] = useState('instructions'); 
+            const [player, setPlayer] = useState(null);
+            const [isPlaying, setIsPlaying] = useState(false);
+            const [currentTime, setCurrentTime] = useState(() => getSavedNum('inca_video_curr_time_hash'));
+            const [ccEnabled, setCcEnabled] = useState(false);
+            const [playbackRate, setPlaybackRate] = useState(1);
+            const [isFullscreen, setIsFullscreen] = useState(false);
             
-            const playerRef = useRef(null);
-            const checkInterval = useRef(null);
+            const [maxTimeWatched, setMaxTimeWatched] = useState(() => getSavedNum('inca_video_max_time_hash'));
+            const maxTimeWatchedRef = useRef(getSavedNum('inca_video_max_time_hash'));
+            
+            const [firstName, setFirstName] = useState(() => getSavedStr('inca_video_first_name'));
+            const [lastName, setLastName] = useState(() => getSavedStr('inca_video_last_name'));
+            const [studentPeriod, setStudentPeriod] = useState(() => getSavedStr('inca_video_period'));
+            const [studentEmail, setStudentEmail] = useState(() => getSavedStr('inca_video_email'));
 
-            // Safer Firebase Initialization
+            const firstNameRef = useRef(firstName);
+            const lastNameRef = useRef(lastName);
+            const studentPeriodRef = useRef(studentPeriod);
+            const studentEmailRef = useRef(studentEmail);
+
+            const [violations, setViolations] = useState(() => getSavedNum('inca_video_violations_hash'));
+            const violationsRef = useRef(violations);
+
+            const [dismissedFinalOverlay, setDismissedFinalOverlay] = useState(false);
+            const playbackRateRef = useRef(1);
+            const lastSeekTimeRef = useRef(0);
+
+            const [activeQuestion, setActiveQuestion] = useState(null);
+            const activeQuestionRef = useRef(null);
+            const lastTriggeredQuestionIdRef = useRef(null); 
+            const prevTimeRef = useRef(undefined); 
+
+            const [studentAnswers, setStudentAnswers] = useState(getSavedAnswers());
+            const studentAnswersRef = useRef(studentAnswers);
+
+            const [selectedOption, setSelectedOption] = useState(null);
+            const [showFeedback, setShowFeedback] = useState(false);
+            const [showResetConfirm, setShowResetConfirm] = useState(false);
+
+            const selectedOptionRef = useRef(null);
+            const showFeedbackRef = useRef(false);
+
+            const [isTeacherMode, setIsTeacherMode] = useState(false);
+            const isTeacherModeRef = useRef(false);
+            const [showPinModal, setShowPinModal] = useState(false);
+            const [pinInput, setPinInput] = useState("");
+            const [pinError, setPinError] = useState(false);
+
+            const playerContainerRef = useRef(null);
+            const intervalRef = useRef(null);
+            const videoWrapperRef = useRef(null);
+
+            const handleFirstNameChange = (e) => {
+                const val = e.target.value;
+                setFirstName(val);
+                firstNameRef.current = val;
+                localStorage.setItem('inca_video_first_name', encodeBase64(SALT + val));
+            };
+
+            const handleLastNameChange = (e) => {
+                const val = e.target.value;
+                setLastName(val);
+                lastNameRef.current = val;
+                localStorage.setItem('inca_video_last_name', encodeBase64(SALT + val));
+            };
+
+            const handlePeriodChange = (e) => {
+                const val = e.target.value;
+                setStudentPeriod(val);
+                studentPeriodRef.current = val;
+                localStorage.setItem('inca_video_period', encodeBase64(SALT + val));
+            };
+
+            const handleEmailChange = (e) => {
+                const val = e.target.value;
+                setStudentEmail(val);
+                studentEmailRef.current = val;
+                localStorage.setItem('inca_video_email', encodeBase64(SALT + val));
+            };
+
+            const handlePinSubmit = () => {
+                if (pinInput === TEACHER_PIN) {
+                    setIsTeacherMode(true);
+                    isTeacherModeRef.current = true;
+                    setShowPinModal(false);
+                    setPinInput("");
+                    setPinError(false);
+                } else {
+                    setPinError(true);
+                    setPinInput("");
+                }
+            };
+
             useEffect(() => {
-                const init = async () => {
-                    try {
-                        const config = window.__firebase_config ? JSON.parse(window.__firebase_config) : null;
-                        
-                        // If no config, we are in "Demo Mode"
-                        if (!config || !config.apiKey) {
-                            console.warn("Firebase not configured. Running in Demo Mode.");
-                            setIsLoading(false);
-                            return;
-                        }
-
-                        if (!firebase.apps.length) {
-                            firebase.initializeApp(config);
-                        }
-                        
-                        const auth = firebase.auth();
-                        const db = firebase.firestore();
-                        setServices({ auth, db });
-
-                        const token = window.__initial_auth_token;
-                        if (token) {
-                            await auth.signInWithCustomToken(token);
-                        } else {
-                            await auth.signInAnonymously();
-                        }
-                        auth.onAuthStateChanged(u => setUser(u));
-                    } catch (e) {
-                        console.error("Initialization error:", e);
-                        setError("Database connection error. You can still use the quiz, but scores may not save.");
-                    } finally {
-                        setIsLoading(false);
-                    }
+                const handleFullscreenChange = () => {
+                    setIsFullscreen(!!document.fullscreenElement || !!document.webkitFullscreenElement);
                 };
-                init();
+                document.addEventListener('fullscreenchange', handleFullscreenChange);
+                document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+                return () => {
+                    document.removeEventListener('fullscreenchange', handleFullscreenChange);
+                    document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+                };
             }, []);
 
-            // Anti-Cheat
             useEffect(() => {
-                if (!quizStarted || completed) return;
-
-                const triggerAlert = (msg) => {
-                    setCheatAlerts(prev => prev + 1);
-                    const el = document.createElement('div');
-                    el.className = "fixed top-10 left-1/2 -translate-x-1/2 bg-red-600 text-white font-bold px-6 py-3 rounded-full shadow-2xl z-[9999] animate-bounce text-sm sm:text-base";
-                    el.innerText = `⚠️ SECURITY: ${msg}`;
-                    document.body.appendChild(el);
-                    setTimeout(() => el.remove(), 3000);
+                const handleKeyDown = (e) => {
+                    if (activeQuestionRef.current && e.key === 'Enter') {
+                        e.preventDefault(); 
+                        if (showFeedbackRef.current) handleContinueVideo();
+                        else handleSkip();
+                    }
                 };
+                window.addEventListener('keydown', handleKeyDown, true);
+                return () => window.removeEventListener('keydown', handleKeyDown, true);
+            }, []);
 
-                const onVisibilityChange = () => { if (document.hidden) triggerAlert("WINDOW INACTIVE"); };
-                const onBlur = () => triggerAlert("WINDOW BLUR");
-                const onCopyPaste = (e) => { e.preventDefault(); triggerAlert("COPY/PASTE BLOCKED"); };
-
-                document.addEventListener('visibilitychange', onVisibilityChange);
-                window.addEventListener('blur', onBlur);
-                document.addEventListener('copy', onCopyPaste);
-                document.addEventListener('paste', onCopyPaste);
-                document.addEventListener('contextmenu', e => e.preventDefault());
-
-                return () => {
-                    document.removeEventListener('visibilitychange', onVisibilityChange);
-                    window.removeEventListener('blur', onBlur);
-                    document.removeEventListener('copy', onCopyPaste);
-                    document.removeEventListener('paste', onCopyPaste);
-                };
-            }, [quizStarted, completed]);
-
-            // YouTube API
             useEffect(() => {
-                if (view === 'quiz' && !window.YT) {
-                    const tag = document.createElement('script');
-                    tag.src = "https://www.youtube.com/iframe_api";
-                    document.body.appendChild(tag);
-                    window.onYouTubeIframeAPIReady = initPlayer;
-                } else if (view === 'quiz' && window.YT) {
-                    initPlayer();
-                }
-                return () => clearInterval(checkInterval.current);
+                const handleBeforeUnload = (e) => {
+                    if (view === 'video' && !isTeacherModeRef.current) {
+                        e.preventDefault();
+                        e.returnValue = ''; 
+                    }
+                };
+                window.addEventListener("beforeunload", handleBeforeUnload);
+                return () => window.removeEventListener("beforeunload", handleBeforeUnload);
             }, [view]);
 
-            const initPlayer = () => {
-                if (playerRef.current) return;
-                playerRef.current = new window.YT.Player('player', {
-                    height: '100%',
-                    width: '100%',
-                    videoId: '9iImmVKrWzI',
-                    playerVars: { autoplay: 1, controls: 1, disablekb: 1, modestbranding: 1, rel: 0 },
-                    events: { 
-                        onStateChange: (e) => { 
-                            if (e.data === 1) startLoop(); 
-                            else clearInterval(checkInterval.current); 
-                        } 
+            useEffect(() => {
+                const handleVisibilityChange = () => {
+                    if (document.hidden && view === 'video' && !isTeacherModeRef.current) {
+                        if (player && typeof player.pauseVideo === 'function') player.pauseVideo();
+                        setViolations(prev => {
+                            const newCount = prev + 1;
+                            violationsRef.current = newCount;
+                            localStorage.setItem('inca_video_violations_hash', encodeBase64(SALT + newCount.toString()));
+                            return newCount;
+                        });
+                    }
+                };
+                document.addEventListener("visibilitychange", handleVisibilityChange);
+                return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+            }, [view, player]);
+
+            useEffect(() => {
+                if (view !== 'video') return;
+                if (!window.YT) {
+                    const tag = document.createElement('script');
+                    tag.src = "https://www.youtube.com/iframe_api";
+                    const firstScriptTag = document.getElementsByTagName('script')[0];
+                    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+                    window.onYouTubeIframeAPIReady = initializePlayer;
+                } else if (!player) {
+                    initializePlayer();
+                }
+                return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+            }, [view]);
+
+            const initializePlayer = () => {
+                const startTime = Math.floor(getSavedNum('inca_video_curr_time_hash'));
+                const newPlayer = new window.YT.Player(playerContainerRef.current, {
+                    videoId: VIDEO_ID,
+                    host: 'https://www.youtube-nocookie.com', 
+                    playerVars: {
+                        controls: 0, disablekb: 1, rel: 0, modestbranding: 1, fs: 0,
+                        iv_load_policy: 3, start: startTime, cc_load_policy: 1, playsinline: 1, origin: window.location.origin 
+                    },
+                    events: {
+                        onReady: (event) => {
+                            setPlayer(event.target);
+                            if (startTime > 0) event.target.seekTo(startTime, true);
+                        },
+                        onStateChange: (event) => setIsPlaying(event.data === window.YT.PlayerState.PLAYING)
                     }
                 });
             };
 
-            const startLoop = () => {
-                clearInterval(checkInterval.current);
-                checkInterval.current = setInterval(() => {
-                    if (!playerRef.current || !playerRef.current.getCurrentTime) return;
-                    const time = playerRef.current.getCurrentTime();
-                    
-                    // No skipping logic
-                    if (time > furthestWatched + 2) {
-                        playerRef.current.seekTo(furthestWatched, true);
-                        return;
-                    }
-                    if (time > furthestWatched) setFurthestWatched(time);
-
-                    const qIdx = quizData.findIndex(q => !q.done && time >= q.time && time < q.time + 1.2);
-                    if (qIdx !== -1) {
-                        playerRef.current.pauseVideo();
-                        setCurrentQuestionIndex(qIdx);
-                        clearInterval(checkInterval.current);
-                    }
-                }, 500);
-            };
-
-            const handleAnswer = (idx) => {
-                if (idx === quizData[currentQuestionIndex].answer) setScore(s => s + 1);
-                quizData[currentQuestionIndex].done = true;
-                setCurrentQuestionIndex(null);
-                playerRef.current.seekTo(playerRef.current.getCurrentTime() + 1);
-                playerRef.current.playVideo();
-                startLoop();
-            };
-
-            const finalize = async () => {
-                setCompleted(true);
-                const result = {
-                    ...studentInfo,
-                    grade: Math.round((score / quizData.length) * 100),
-                    cheating: cheatAlerts,
-                    timestamp: new Date().toISOString()
-                };
-
-                if (services.db && user) {
-                    try {
-                        const appId = window.__app_id || 'inca-conquest-quiz';
-                        await services.db.collection('artifacts').doc(appId).collection('public').doc('data').collection('grades').add(result);
-                    } catch (e) { console.error("Cloud save failed", e); }
-                }
-            };
-
             useEffect(() => {
-                if (view === 'admin' && services.db) {
-                    const appId = window.__app_id || 'inca-conquest-quiz';
-                    const q = services.db.collection('artifacts').doc(appId).collection('public').doc('data').collection('grades');
-                    return q.onSnapshot(snap => {
-                        setResults(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                    });
-                }
-            }, [view, services]);
+                if (isPlaying && player && view === 'video') {
+                    intervalRef.current = setInterval(() => {
+                        const time = player.getCurrentTime();
+                        if (time >= MAX_ALLOWED_TIME) {
+                            player.pauseVideo();
+                            handleFinalSubmit(); 
+                            return;
+                        }
 
-            if (isLoading) return null; // Let the HTML fallback show
+                        if (!isTeacherModeRef.current && player.getPlaybackRate() !== playbackRateRef.current) {
+                            player.setPlaybackRate(playbackRateRef.current);
+                        }
+                        
+                        const prev = prevTimeRef.current !== undefined ? prevTimeRef.current : time;
+
+                        if (Date.now() - lastSeekTimeRef.current >= 1500) {
+                            let currentMax = maxTimeWatchedRef.current;
+                            const JUMP_TOLERANCE = 2.5; 
+
+                            if (!isTeacherModeRef.current && time > prev + JUMP_TOLERANCE) { 
+                                player.seekTo(prev, true);
+                                lastSeekTimeRef.current = Date.now();
+                                return; 
+                            } else {
+                                if (time > currentMax) {
+                                    maxTimeWatchedRef.current = time;
+                                    setMaxTimeWatched(time);
+                                    localStorage.setItem('inca_video_max_time_hash', encodeBase64(SALT + time.toString())); 
+                                }
+                            }
+                        }
+
+                        if (time > 0 || maxTimeWatchedRef.current === 0) {
+                            setCurrentTime(time);
+                            localStorage.setItem('inca_video_curr_time_hash', encodeBase64(SALT + time.toString())); 
+                        }
+
+                        if (!activeQuestionRef.current) {
+                            const upcoming = QUIZ_QUESTIONS.find(q => {
+                                if (studentAnswersRef.current[q.id] !== undefined) return false;
+                                const inWindow = time >= q.timestamp && time < q.timestamp + 2;
+                                const passedByLag = prev <= q.timestamp && time > q.timestamp && (time - prev) < 5;
+                                return inWindow || passedByLag;
+                            });
+                            
+                            if (upcoming && lastTriggeredQuestionIdRef.current !== upcoming.id) {
+                                player.pauseVideo();
+                                setActiveQuestion(upcoming);
+                                activeQuestionRef.current = upcoming;
+                                lastTriggeredQuestionIdRef.current = upcoming.id;
+                            } else if (!upcoming) {
+                                lastTriggeredQuestionIdRef.current = null; 
+                            }
+                        }
+                        prevTimeRef.current = time;
+                    }, 250);
+                } else if (intervalRef.current) {
+                    clearInterval(intervalRef.current);
+                }
+                return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+            }, [isPlaying, player, view]);
+
+            const togglePlayPause = () => {
+                if (!player) return;
+                isPlaying ? player.pauseVideo() : player.playVideo();
+            };
+
+            const toggleCC = () => {
+                if (!player) return;
+                ccEnabled ? player.setOption('captions', 'track', {}) : player.setOption('captions', 'track', {languageCode: 'en'}); 
+                setCcEnabled(!ccEnabled);
+            };
+
+            const toggleSpeed = () => {
+                const newRate = playbackRate === 1 ? 1.25 : 1;
+                setPlaybackRate(newRate);
+                playbackRateRef.current = newRate;
+                if (player) player.setPlaybackRate(newRate);
+            };
+
+            const handleRewind = () => {
+                if (!player) return;
+                const newTime = Math.max(0, player.getCurrentTime() - 10);
+                if (!isTeacherModeRef.current) {
+                    maxTimeWatchedRef.current = newTime;
+                    setMaxTimeWatched(newTime);
+                    localStorage.setItem('inca_video_max_time_hash', encodeBase64(SALT + newTime.toString()));
+                }
+                lastSeekTimeRef.current = Date.now(); 
+                player.seekTo(newTime, true);
+                setCurrentTime(newTime);
+                prevTimeRef.current = newTime;
+                lastTriggeredQuestionIdRef.current = null; 
+            };
+
+            const toggleFullscreen = () => {
+                if (!videoWrapperRef.current) return;
+                if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                    if (videoWrapperRef.current.requestFullscreen) videoWrapperRef.current.requestFullscreen();
+                    else if (videoWrapperRef.current.webkitRequestFullscreen) videoWrapperRef.current.webkitRequestFullscreen();
+                } else {
+                    if (document.exitFullscreen) document.exitFullscreen();
+                    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+                }
+            };
+
+            const handleTimelineClick = (e) => {
+                if (!player) return;
+                const rect = e.currentTarget.getBoundingClientRect();
+                const targetTime = ((e.clientX - rect.left) / rect.width) * MAX_ALLOWED_TIME;
+                seekToChecked(targetTime);
+            };
+
+            const handleTimelineSlider = (e) => seekToChecked(parseFloat(e.target.value));
+
+            const seekToChecked = (targetTime) => {
+                if (!player) return;
+                let finalTime = targetTime;
+                const currentVidTime = player.getCurrentTime();
+                if (!isTeacherModeRef.current && finalTime > currentVidTime) finalTime = currentVidTime;
+                
+                maxTimeWatchedRef.current = finalTime;
+                setMaxTimeWatched(finalTime);
+                localStorage.setItem('inca_video_max_time_hash', encodeBase64(SALT + finalTime.toString()));
+                
+                lastSeekTimeRef.current = Date.now(); 
+                player.seekTo(finalTime, true);
+                setCurrentTime(finalTime);
+                prevTimeRef.current = finalTime;
+                lastTriggeredQuestionIdRef.current = null;
+            };
+
+            const handleOptionClick = (index) => {
+                if (showFeedbackRef.current) return; 
+                setSelectedOption(index);
+                selectedOptionRef.current = index;
+                setShowFeedback(true);
+                showFeedbackRef.current = true;
+            };
+
+            const handleSkip = () => {
+                const questionId = activeQuestionRef.current?.id;
+                if (!questionId) return;
+                updateAnswers(questionId, false);
+                resetModalState();
+            };
+
+            const handleContinueVideo = () => {
+                const currentQ = activeQuestionRef.current;
+                if (!currentQ) return;
+                const isCorrect = selectedOptionRef.current === currentQ.correctIndex;
+                updateAnswers(currentQ.id, isCorrect);
+                resetModalState();
+            };
+
+            const updateAnswers = (id, result) => {
+                setStudentAnswers(prev => {
+                    const next = { ...prev, [id]: result };
+                    studentAnswersRef.current = next;
+                    localStorage.setItem('inca_video_answers_hash', encodeBase64(SALT + JSON.stringify(next)));
+                    return next;
+                });
+            };
+
+            const resetModalState = () => {
+                setActiveQuestion(null);
+                activeQuestionRef.current = null;
+                setSelectedOption(null);
+                selectedOptionRef.current = null;
+                setShowFeedback(false);
+                showFeedbackRef.current = false;
+                if (player) player.playVideo();
+            };
+
+            const executeFullReset = () => {
+                ['curr_time_hash', 'max_time_hash', 'answers_hash', 'violations_hash', 'first_name', 'last_name', 'period', 'email'].forEach(k => localStorage.removeItem(`inca_video_${k}`));
+                setCurrentTime(0);
+                setMaxTimeWatched(0);
+                maxTimeWatchedRef.current = 0;
+                setStudentAnswers({});
+                studentAnswersRef.current = {};
+                setViolations(0);
+                violationsRef.current = 0;
+                setFirstName("");
+                setLastName("");
+                setStudentPeriod("");
+                setStudentEmail("");
+                firstNameRef.current = "";
+                lastNameRef.current = "";
+                studentPeriodRef.current = "";
+                studentEmailRef.current = "";
+                setDismissedFinalOverlay(false);
+                setShowResetConfirm(false);
+                if (player) {
+                    player.seekTo(0, true);
+                    player.playVideo();
+                }
+                lastSeekTimeRef.current = Date.now();
+                prevTimeRef.current = 0;
+                lastTriggeredQuestionIdRef.current = null;
+            };
+
+            const isFormValid = Boolean(firstName?.trim() && lastName?.trim() && studentPeriod && studentEmail?.trim());
+
+            const calculateScore = () => Object.values(studentAnswersRef.current).filter(val => val === true).length;
+
+            const formatTime = (seconds) => {
+                const h = Math.floor(seconds / 3600);
+                const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
+                const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+                return h > 0 ? `${h}:${m}:${s}` : `${m}:${s}`;
+            };
+
+            const downloadJPG = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 1000; canvas.height = 700;
+                const ctx = canvas.getContext('2d');
+                const gradient = ctx.createLinearGradient(0, 0, 1000, 700);
+                gradient.addColorStop(0, '#0f172a'); gradient.addColorStop(0.5, '#451a03'); gradient.addColorStop(1, '#064e3b');
+                ctx.fillStyle = gradient; ctx.fillRect(0, 0, 1000, 700);
+
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
+                ctx.font = '22px monospace';
+                for (let i = 0; i < 40; i++) ctx.fillText('INCA CONQUEST SECURE RECORD  INCA CONQUEST SECURE RECORD', -50 + (i % 2) * 40, i * 30);
+
+                ctx.fillStyle = 'rgba(30, 41, 59, 0.9)'; ctx.shadowBlur = 30; ctx.fillRect(80, 80, 840, 540); ctx.shadowBlur = 0;
+                ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 4; ctx.strokeRect(80, 80, 840, 540);
+
+                ctx.textAlign = 'center'; ctx.fillStyle = '#f8fafc'; ctx.font = 'bold 36px Arial';
+                ctx.fillText('Conquistadors: The Conquest of the Incas', 500, 150);
+                ctx.fillStyle = '#f59e0b'; ctx.font = '22px Arial'; ctx.fillText('OFFICIAL COMPLETION CERTIFICATE', 500, 190);
+
+                ctx.fillStyle = '#ffffff'; ctx.font = 'bold 48px Arial';
+                ctx.fillText(`${firstNameRef.current} ${lastNameRef.current}`, 500, 280);
+                ctx.fillStyle = '#cbd5e1'; ctx.font = '24px Arial';
+                ctx.fillText(`Period: ${studentPeriodRef.current} | Email: ${studentEmailRef.current}`, 500, 325);
+
+                const finalScore = calculateScore();
+                ctx.font = 'bold 80px Arial';
+                ctx.fillStyle = finalScore >= 21 ? '#4ade80' : (finalScore >= 15 ? '#fbbf24' : '#ef4444');
+                ctx.fillText(`Score: ${finalScore} / 30`, 500, 430);
+
+                ctx.fillStyle = '#94a3b8'; ctx.font = '22px Arial';
+                const now = new Date();
+                ctx.fillText(`Date: ${now.toLocaleDateString()} | Flags: ${violationsRef.current}`, 500, 510);
+
+                const hashStr = btoa(`${firstNameRef.current}_${finalScore}_${now.getTime()}`).substring(0, 30);
+                ctx.fillStyle = '#475569'; ctx.font = '14px monospace';
+                ctx.fillText(`VERIFICATION-ID: ${hashStr}-${violationsRef.current}`, 500, 580);
+
+                const link = document.createElement('a');
+                link.download = `${firstNameRef.current}_${lastNameRef.current}_inca_score.jpg`;
+                link.href = canvas.toDataURL('image/jpeg', 0.95);
+                link.click();
+            };
+
+            const handleFinalSubmit = () => {
+                downloadJPG();
+                setView('finished');
+            };
+
+            if (view === 'instructions') return (
+                <div className="max-w-2xl w-full bg-slate-800 p-8 rounded-3xl shadow-2xl border border-slate-700 relative my-auto">
+                    {!isTeacherMode ? (
+                        <button onClick={() => setShowPinModal(true)} className="absolute top-6 right-6 text-slate-700 hover:text-slate-400 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        </button>
+                    ) : (
+                        <button onClick={() => { setIsTeacherMode(false); isTeacherModeRef.current = false; }} className="absolute top-6 right-6 text-green-500 font-bold flex items-center gap-1 bg-green-900/20 px-3 py-1 rounded-full border border-green-500/30">🔓 Exit Teacher Mode</button>
+                    )}
+                    <h1 className="text-3xl font-black text-white mb-4 border-b border-slate-700 pb-4 uppercase tracking-wider text-center">
+                        Conquest of the Incas<br/><span className="text-xl text-amber-500 block mt-1">BBC Documentary Assessment</span>
+                    </h1>
+                    <div className="space-y-4 text-slate-200 text-center mb-8">
+                        <p>Welcome! Complete this 30-question assessment based on the documentary. You cannot skip forward; you must watch the content to unlock questions.</p>
+                        <p className="text-red-400 font-bold bg-red-900/20 p-4 rounded-xl border border-red-500/30">Leaving the window or switching tabs will be recorded as a violation.</p>
+                    </div>
+                    <div className="bg-slate-700/40 p-6 rounded-2xl border border-slate-600 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">First Name*</label>
+                            <input type="text" value={firstName} onChange={handleFirstNameChange} className="w-full bg-slate-900 text-white px-3 py-2 rounded-lg border border-slate-600 focus:border-amber-500 outline-none" />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Last Name*</label>
+                            <input type="text" value={lastName} onChange={handleLastNameChange} className="w-full bg-slate-900 text-white px-3 py-2 rounded-lg border border-slate-600 focus:border-amber-500 outline-none" />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Period*</label>
+                            <select value={studentPeriod} onChange={handlePeriodChange} className="w-full bg-slate-900 text-white px-3 py-2 rounded-lg border border-slate-600 focus:border-amber-500 outline-none">
+                                <option value="" disabled>Select...</option>
+                                {['1','a2','a4','b2','b3','b4','5th'].map(p => <option key={p} value={p}>{p}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Email*</label>
+                            <input type="email" value={studentEmail} onChange={handleEmailChange} placeholder="student@school.edu" className="w-full bg-slate-900 text-white px-3 py-2 rounded-lg border border-slate-600 focus:border-amber-500 outline-none" />
+                        </div>
+                    </div>
+                    <div className="mt-8 flex justify-center">
+                        <button onClick={() => setView('video')} disabled={!isFormValid} className={`px-10 py-4 rounded-2xl font-black text-xl uppercase transition-all transform ${isFormValid ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-xl hover:scale-105' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}`}>Start Assessment</button>
+                    </div>
+                    {showPinModal && (
+                        <div className="absolute inset-0 bg-slate-900/95 backdrop-blur-sm z-50 flex items-center justify-center rounded-3xl p-4">
+                            <div className="bg-slate-800 p-8 rounded-2xl border border-slate-600 shadow-2xl w-full max-w-xs text-center">
+                                <h2 className="text-xl font-bold mb-4">Teacher Access</h2>
+                                <input type="password" value={pinInput} onChange={e => setPinInput(e.target.value)} placeholder="PIN" className="w-full bg-slate-700 text-white px-4 py-3 rounded-lg border mb-4 text-center text-xl tracking-widest" autoFocus />
+                                <div className="flex gap-2">
+                                    <button onClick={() => { setShowPinModal(false); setPinInput(""); }} className="flex-1 bg-slate-600 py-2 rounded-lg">Cancel</button>
+                                    <button onClick={handlePinSubmit} className="flex-1 bg-amber-600 py-2 rounded-lg font-bold">Unlock</button>
+                                </div>
+                                {pinError && <p className="text-red-400 text-xs mt-2 font-bold">Incorrect PIN.</p>}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+
+            if (view === 'finished') return (
+                <div className="max-w-2xl w-full bg-slate-800 p-12 rounded-3xl border border-slate-700 text-center shadow-2xl">
+                    <div className="text-green-400 text-7xl mb-6">🏆</div>
+                    <h1 className="text-4xl font-black mb-2 uppercase">Assessment Done</h1>
+                    <p className="text-xl text-amber-500 font-bold mb-8">{firstName} {lastName}</p>
+                    <div className="bg-slate-900 rounded-2xl p-8 mb-8 border border-slate-700 shadow-inner">
+                        <p className="text-slate-500 font-bold uppercase tracking-widest mb-2">Final Score</p>
+                        <p className="text-7xl font-black"><span className={calculateScore() >= 21 ? 'text-green-400' : 'text-amber-400'}>{calculateScore()}</span><span className="text-3xl text-slate-600"> / 30</span></p>
+                    </div>
+                    <p className="text-slate-300 mb-8 leading-relaxed">Your certificate has been downloaded. Please submit it to your teacher as proof of completion. If it didn't download, use the button below.</p>
+                    <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                        <button onClick={downloadJPG} className="bg-amber-600 px-8 py-3 rounded-xl font-bold shadow-lg">Download Again</button>
+                        <button onClick={() => window.location.reload()} className="bg-slate-700 px-8 py-3 rounded-xl font-bold">Close Session</button>
+                    </div>
+                </div>
+            );
 
             return (
-                <div className="min-h-screen flex flex-col">
-                    <nav className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/80 backdrop-blur sticky top-0 z-50">
-                        <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center text-slate-900 font-bold">V</div>
-                            <span className="font-bold text-sm sm:text-base">Inca Conquest Assessment</span>
+                <div className="w-full flex flex-col items-center gap-6 animate-fadeIn">
+                    {!isFullscreen && (
+                        <div className="text-center w-full">
+                            <h1 className="text-3xl font-black text-white uppercase tracking-tighter">Inca Conquest Assessment</h1>
+                            {isTeacherMode && <p className="text-green-400 font-black text-xs mt-1">🔓 TEACHER MODE ACTIVE</p>}
                         </div>
-                        <div className="flex gap-2">
-                            <button onClick={() => setView('login')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition ${view === 'login' ? 'bg-amber-500 text-black' : 'text-slate-400'}`}>Student</button>
-                            <button onClick={() => setView('admin')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition ${view === 'admin' ? 'bg-amber-500 text-black' : 'text-slate-400'}`}>Log</button>
-                        </div>
-                    </nav>
-
-                    <main className="flex-1 p-4 flex flex-col items-center justify-center">
-                        {error && (
-                            <div className="mb-4 bg-amber-500/10 border border-amber-500/20 text-amber-500 px-4 py-2 rounded-lg text-xs text-center max-w-sm">
-                                {error}
-                            </div>
-                        )}
-
-                        {view === 'login' && !quizStarted && (
-                            <div className="bg-slate-800 p-8 rounded-3xl border border-slate-700 shadow-2xl w-full max-w-md video-overlay-enter">
-                                <h2 className="text-2xl font-bold mb-6 text-center">Class Entry</h2>
-                                <div className="space-y-4">
-                                    <input placeholder="First Name" className="w-full bg-slate-900 p-3 rounded-xl ring-1 ring-slate-700 focus:ring-2 focus:ring-amber-500 outline-none" value={studentInfo.firstName} onChange={e => setStudentInfo({...studentInfo, firstName: e.target.value})} />
-                                    <input placeholder="Last Name" className="w-full bg-slate-900 p-3 rounded-xl ring-1 ring-slate-700 focus:ring-2 focus:ring-amber-500 outline-none" value={studentInfo.lastName} onChange={e => setStudentInfo({...studentInfo, lastName: e.target.value})} />
-                                    <select className="w-full bg-slate-900 p-3 rounded-xl ring-1 ring-slate-700" value={studentInfo.period} onChange={e => setStudentInfo({...studentInfo, period: e.target.value})}>
-                                        <option value="">Select Period</option>
-                                        {[1,2,3,4,5,6].map(p => <option key={p} value={p}>Period {p}</option>)}
-                                    </select>
-                                    <button disabled={!studentInfo.firstName || !studentInfo.period} onClick={() => { setQuizStarted(true); setView('quiz'); }} className="w-full bg-amber-500 py-4 rounded-xl text-black font-bold disabled:opacity-30 hover:bg-amber-400 transition mt-2 shadow-lg shadow-amber-500/10">Start Lesson</button>
-                                </div>
-                            </div>
-                        )}
-
-                        {view === 'quiz' && !completed && (
-                            <div className="w-full max-w-5xl">
-                                <div className="relative aspect-video bg-black rounded-[2rem] overflow-hidden shadow-2xl border border-slate-800">
-                                    <div id="player"></div>
-                                    {currentQuestionIndex !== null && (
-                                        <div className="absolute inset-0 bg-slate-900/98 flex items-center justify-center p-6 z-50 video-overlay-enter">
-                                            <div className="w-full max-w-2xl">
-                                                <h3 className="text-xl sm:text-2xl font-bold mb-8 leading-tight">{quizData[currentQuestionIndex].question}</h3>
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                                    {quizData[currentQuestionIndex].options.map((opt, i) => (
-                                                        <button key={i} onClick={() => handleAnswer(i)} className="bg-slate-800 hover:bg-slate-700 p-4 rounded-2xl text-left border border-slate-700 transition">
-                                                            <span className="font-bold text-amber-500 mr-2">{String.fromCharCode(65+i)}.</span> {opt}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                    <div className="absolute top-4 right-4 flex gap-2">
-                                        <div className="bg-black/50 px-3 py-1 rounded-full text-[10px] font-bold border border-white/10 uppercase">Grade: {Math.round((score/quizData.length)*100)}%</div>
-                                        <button onClick={finalize} className="bg-green-600 px-4 py-1 rounded-full text-[10px] font-bold">Submit</button>
+                    )}
+                    <div ref={videoWrapperRef} className={`relative transition-all overflow-hidden bg-black ${isFullscreen ? 'w-screen h-screen' : 'w-full aspect-video rounded-3xl shadow-2xl border border-slate-700'}`}>
+                        <div ref={playerContainerRef} className="absolute inset-0"></div>
+                        <div className="absolute inset-0 z-10 bg-transparent"></div>
+                        {activeQuestion && (
+                            <div className="absolute inset-0 bg-slate-900/98 z-50 flex items-center justify-center p-6">
+                                <div className="max-w-2xl w-full bg-slate-800 p-8 rounded-3xl border border-slate-600 shadow-2xl select-none">
+                                    <div className="flex justify-between items-center mb-6">
+                                        <span className="bg-amber-600 text-[10px] font-black px-3 py-1 rounded-full uppercase">Question {activeQuestion.id} / 30</span>
+                                    </div>
+                                    <h2 className="text-xl sm:text-2xl font-bold text-white mb-8 leading-snug">{activeQuestion.text}</h2>
+                                    <div className="space-y-3">
+                                        {activeQuestion.options.map((opt, i) => {
+                                            const correct = i === activeQuestion.correctIndex;
+                                            const selected = i === selectedOption;
+                                            let style = "w-full text-left p-4 rounded-xl border-2 font-bold transition-all ";
+                                            if (!showFeedback) style += "border-slate-700 hover:border-amber-500 bg-slate-700/50";
+                                            else style += correct ? "border-green-500 bg-green-500/20 text-green-300" : (selected ? "border-red-500 bg-red-500/20 text-red-300" : "border-slate-800 opacity-30");
+                                            return <button key={i} onClick={() => handleOptionClick(i)} disabled={showFeedback} className={style}><span className="text-amber-500 mr-2 opacity-50">{String.fromCharCode(65+i)}.</span> {opt}</button>;
+                                        })}
+                                    </div>
+                                    <div className="mt-8 flex justify-end">
+                                        {showFeedback ? <button onClick={handleContinueVideo} className="bg-amber-600 px-10 py-3 rounded-xl font-black uppercase text-lg">Continue Video</button> : <button onClick={handleSkip} className="text-slate-500 font-bold hover:text-white transition">Skip Question</button>}
                                     </div>
                                 </div>
                             </div>
                         )}
-
-                        {completed && (
-                            <div className="text-center video-overlay-enter">
-                                <div className="text-6xl mb-4">🏆</div>
-                                <h2 className="text-3xl font-bold mb-2">Lesson Complete</h2>
-                                <p className="text-slate-400 mb-8">Score: {Math.round((score/quizData.length)*100)}% • Security Flags: {cheatAlerts}</p>
-                                <button onClick={() => window.location.reload()} className="bg-slate-700 px-8 py-2 rounded-full font-bold">Restart</button>
+                        <div className={`absolute bottom-0 left-0 w-full p-4 sm:p-6 bg-gradient-to-t from-black via-black/80 to-transparent z-40 flex flex-col gap-4 ${activeQuestion ? 'opacity-0' : 'opacity-100'} transition-opacity`}>
+                            <div className="relative w-full h-2 bg-slate-800 rounded-full cursor-pointer" onClick={handleTimelineClick}>
+                                <div className="absolute top-0 left-0 h-full bg-slate-600/50 rounded-full" style={{ width: `${(maxTimeWatched/MAX_ALLOWED_TIME)*100}%` }}></div>
+                                <div className="absolute top-0 left-0 h-full bg-amber-500 rounded-full" style={{ width: `${(currentTime/MAX_ALLOWED_TIME)*100}%` }}></div>
+                                {QUIZ_QUESTIONS.map(q => <div key={q.id} className={`absolute top-1/2 -translate-y-1/2 w-1 h-3 rounded-full ${studentAnswers[q.id] === true ? 'bg-green-400' : (studentAnswers[q.id] === false ? 'bg-red-500' : 'bg-amber-300')}`} style={{ left: `${(q.timestamp/MAX_ALLOWED_TIME)*100}%` }}></div>)}
+                                <input type="range" min="0" max={MAX_ALLOWED_TIME} value={currentTime} step="1" onChange={handleTimelineSlider} className="absolute inset-0 w-full opacity-0 cursor-pointer z-50" />
                             </div>
-                        )}
-
-                        {view === 'admin' && (
-                            <div className="w-full max-w-4xl bg-slate-800 rounded-3xl border border-slate-700 overflow-hidden shadow-xl">
-                                <div className="p-6 border-b border-slate-700 flex justify-between items-center">
-                                    <h2 className="font-bold">Live Gradebook</h2>
-                                    <span className="text-[10px] text-slate-500 uppercase font-black">Admin Access Only</span>
-                                </div>
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left text-sm">
-                                        <thead className="bg-slate-900/50 text-slate-500">
-                                            <tr>
-                                                <th className="p-4">Student</th>
-                                                <th className="p-4">Period</th>
-                                                <th className="p-4 text-center">Score</th>
-                                                <th className="p-4 text-center">Flags</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-700">
-                                            {results.length === 0 ? (
-                                                <tr><td colSpan="4" className="p-12 text-center text-slate-500 italic">No submissions yet</td></tr>
-                                            ) : (
-                                                results.map(r => (
-                                                    <tr key={r.id}>
-                                                        <td className="p-4 font-bold">{r.lastName}, {r.firstName}</td>
-                                                        <td className="p-4">P{r.period}</td>
-                                                        <td className="p-4 text-center font-bold text-amber-500">{r.grade}%</td>
-                                                        <td className="p-4 text-center">
-                                                            {r.cheating > 0 ? <span className="text-red-500 font-bold">⚠️ {r.cheating}</span> : "0"}
-                                                        </td>
-                                                    </tr>
-                                                ))
-                                            )}
-                                        </tbody>
-                                    </table>
+                            <div className="flex items-center gap-4">
+                                <button onClick={togglePlayPause} className="text-white hover:text-amber-500 transition-colors">{isPlaying ? <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg> : <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>}</button>
+                                <button onClick={handleRewind} className="text-white hover:text-amber-500 flex items-center gap-1 font-black text-xs"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg> 10s</button>
+                                <button onClick={toggleCC} className={`transition ${ccEnabled ? 'text-amber-500' : 'text-slate-500'}`}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="14" x="3" y="5" rx="2" ry="2"/><path d="M7 15h4M15 15h2M7 11h2M13 11h4"/></svg></button>
+                                <button onClick={toggleSpeed} className={`px-2 py-0.5 rounded border-2 font-black text-[10px] transition ${playbackRate > 1 ? 'border-amber-500 text-amber-500' : 'border-slate-500 text-slate-500'}`}>{playbackRate}x</button>
+                                <div className="ml-auto flex items-center gap-4">
+                                    <div className="hidden sm:flex text-[10px] font-black gap-2"><span className="text-slate-500">SCORE</span><span className="text-green-500">{calculateScore()} / 30</span></div>
+                                    <span className="text-[10px] font-bold font-mono">{formatTime(currentTime)} / {formatTime(MAX_ALLOWED_TIME)}</span>
+                                    <button onClick={toggleFullscreen} className="text-slate-500 hover:text-white"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
                                 </div>
                             </div>
-                        )}
-                    </main>
+                        </div>
+                    </div>
+                    {!isFullscreen && <button onClick={() => setShowResetConfirm(true)} className="text-slate-600 hover:text-red-500 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 mt-4 transition-colors"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg> Restart From Scratch</button>}
+                    {showResetConfirm && (
+                        <div className="absolute inset-0 bg-slate-900/95 z-[100] flex items-center justify-center p-4">
+                            <div className="bg-slate-800 p-8 rounded-3xl border-2 border-red-500 text-center max-w-sm">
+                                <h2 className="text-2xl font-black mb-4 uppercase">Reset All Progress?</h2>
+                                <p className="text-slate-400 mb-8 text-sm">This will delete your score, answers, and watched time permanently. You will start at 0:00.</p>
+                                <div className="flex gap-4">
+                                    <button onClick={() => setShowResetConfirm(false)} className="flex-1 bg-slate-700 py-3 rounded-xl font-bold">Cancel</button>
+                                    <button onClick={executeFullReset} className="flex-1 bg-red-600 py-3 rounded-xl font-bold">Yes, Reset</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
-        }
+        };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
