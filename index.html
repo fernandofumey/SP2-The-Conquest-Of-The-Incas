@@ -250,8 +250,8 @@
                             localStorage.setItem('inca_video_max_time_hash', encodeBase64(SALT + time.toString()));
                         }
 
-                        // Question Trigger
-                        const upcoming = QUIZ_QUESTIONS.find(q => studentAnswers[q.id] === undefined && time >= q.timestamp && time < q.timestamp + 1.5);
+                        // Question Trigger - Removed 'studentAnswers[q.id] === undefined' to allow repeats
+                        const upcoming = QUIZ_QUESTIONS.find(q => time >= q.timestamp && time < q.timestamp + 1.5);
                         if (upcoming && lastTriggeredQuestionIdRef.current !== upcoming.id) {
                             player.pauseVideo();
                             setActiveQuestion(upcoming);
@@ -269,6 +269,7 @@
             const handleRewind = () => {
                 const newTime = Math.max(0, player.getCurrentTime() - 10);
                 lastSeekTimeRef.current = Date.now();
+                lastTriggeredQuestionIdRef.current = null; // Reset trigger so it can fire immediately if rewinded into a sector
                 player.seekTo(newTime, true);
             };
 
@@ -433,7 +434,18 @@
                         {/* CONTROLS OVERLAY */}
                         <div className={`absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-black via-black/80 to-transparent z-50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-4 ${activeQuestion ? 'hidden' : ''}`}>
                             {/* TIMELINE */}
-                            <div className="relative w-full h-1.5 bg-slate-800 rounded-full">
+                            <div className="relative w-full h-1.5 bg-slate-800 rounded-full cursor-pointer" onClick={(e) => {
+                                if (!player) return;
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const targetTime = ((e.clientX - rect.left) / rect.width) * MAX_ALLOWED_TIME;
+                                let finalTime = targetTime;
+                                const currentVidTime = player.getCurrentTime();
+                                if (!isTeacherMode && finalTime > currentVidTime) finalTime = currentVidTime;
+                                
+                                lastSeekTimeRef.current = Date.now();
+                                lastTriggeredQuestionIdRef.current = null; // Clear trigger memory on click
+                                player.seekTo(finalTime, true);
+                            }}>
                                 {/* QUESTION MARKERS */}
                                 {QUIZ_QUESTIONS.map(q => (
                                     <div 
