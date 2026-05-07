@@ -1,546 +1,353 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>The Conquest of the Incas - Assessment</title>
-    
-    <!-- Tailwind CSS for styling -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- React and ReactDOM -->
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-    
-    <!-- Babel for JSX compilation -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <style>
-        .no-select { user-select: none; -webkit-user-select: none; }
-        .yt-overlay { pointer-events: none; }
-        iframe { width: 100% !important; height: 100% !important; position: absolute; top: 0; left: 0; }
-        
-        /* High-security font appearance for UI */
-        .security-font { font-family: 'Courier New', Courier, monospace; letter-spacing: -1px; }
-        
-        @keyframes scanline {
-            0% { transform: translateY(-100%); }
-            100% { transform: translateY(1000%); }
+import React, { useState, useEffect, useRef } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+import { getFirestore, collection, onSnapshot, doc, setDoc } from 'firebase/firestore';
+
+// --- CONFIGURACIÓN DE FIREBASE ---
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'inca-secure-video';
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [studentInfo, setStudentInfo] = useState({ firstName: '', lastName: '', period: '' });
+  const [view, setView] = useState('login'); // 'login', 'video', 'admin'
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [violations, setViolations] = useState(0);
+  const [showSecurityWarning, setShowSecurityWarning] = useState(false);
+  const [results, setResults] = useState([]);
+  const [videoEnded, setVideoEnded] = useState(false);
+
+  const playerRef = useRef(null);
+  const videoContainerRef = useRef(null);
+  const lastViolationTime = useRef(0);
+
+  // --- INICIALIZACIÓN DE AUTENTICACIÓN (REGLA 3) ---
+  useEffect(() => {
+    const initAuth = async () => {
+      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+        await signInWithCustomToken(auth, __initial_auth_token);
+      } else {
+        await signInAnonymously(auth);
+      }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, setUser);
+    return () => unsubscribe();
+  }, []);
+
+  // --- MONITOREO DE SEGURIDAD (REGLAS 2 Y 4) ---
+  useEffect(() => {
+    if (view !== 'video' || videoEnded) return;
+
+    const triggerAlert = (reason) => {
+      const now = Date.now();
+      if (now - lastViolationTime.current < 2000) return;
+      lastViolationTime.current = now;
+
+      setViolations(prev => {
+        const newFlags = prev + 1;
+        // Actualizar base de datos inmediatamente (REGLA 1: Ruta con segmentos pares para doc)
+        if (user) {
+          const studentDoc = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', user.uid);
+          setDoc(studentDoc, {
+            ...studentInfo,
+            uid: user.uid,
+            flags: newFlags,
+            lastAlert: reason,
+            timestamp: new Date().toISOString(),
+            status: 'Activo'
+          }, { merge: true });
         }
-        .scanner {
-            position: absolute;
-            top: 0; left: 0; right: 0; height: 2px;
-            background: rgba(245, 158, 11, 0.2);
-            animation: scanline 8s linear infinite;
-            pointer-events: none;
+        return newFlags;
+      });
+      
+      setShowSecurityWarning(true);
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') triggerAlert('Cambio de Pestaña');
+    };
+
+    const handleBlur = () => triggerAlert('Pérdida de Foco de Ventana');
+
+    const handleClickOutside = (e) => {
+      if (videoContainerRef.current && !videoContainerRef.current.contains(e.target)) {
+        triggerAlert('Clic fuera del reproductor');
+      }
+    };
+
+    // Bloquear copiar/pegar y menú contextual
+    const preventCopyPaste = (e) => {
+      e.preventDefault();
+      triggerAlert('Intento de Copiar/Pegar');
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('blur', handleBlur);
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('copy', preventCopyPaste);
+    document.addEventListener('paste', preventCopyPaste);
+    document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('blur', handleBlur);
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('copy', preventCopyPaste);
+      document.removeEventListener('paste', preventCopyPaste);
+    };
+  }, [view, videoEnded, user, studentInfo]);
+
+  // --- API DE YOUTUBE ---
+  useEffect(() => {
+    if (view === 'video' && !window.YT) {
+      const tag = document.createElement('script');
+      tag.src = "https://www.youtube.com/iframe_api";
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+      window.onYouTubeIframeAPIReady = initPlayer;
+    } else if (view === 'video' && window.YT) {
+      initPlayer();
+    }
+  }, [view]);
+
+  const initPlayer = () => {
+    playerRef.current = new window.YT.Player('player', {
+      height: '100%',
+      width: '100%',
+      videoId: '9iImmVKrWzI',
+      playerVars: {
+        autoplay: 1,
+        modestbranding: 1,
+        rel: 0,
+        controls: 1,
+      },
+      events: {
+        onStateChange: (event) => {
+          if (event.data === window.YT.PlayerState.ENDED) {
+            setVideoEnded(true);
+            finalizeSession();
+          }
         }
-    </style>
-</head>
-<body class="bg-slate-900 text-white min-h-screen flex items-start sm:items-center justify-center p-4 py-10 selection:bg-amber-500/30">
-    <div id="root" class="w-full max-w-5xl"></div>
+      }
+    });
+  };
 
-    <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+  const finalizeSession = async () => {
+    if (user) {
+      const studentDoc = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', user.uid);
+      await setDoc(studentDoc, {
+        status: 'Finalizado',
+        completedAt: new Date().toISOString()
+      }, { merge: true });
+    }
+  };
 
-        const MAX_ALLOWED_TIME = 2941; 
-        const FORCE_FINISH_TIME = 2676; // Requerido por el usuario
-        const VIDEO_ID = '9iImmVKrWzI';
+  const handleStart = (e) => {
+    e.preventDefault();
+    if (studentInfo.firstName && studentInfo.lastName && studentInfo.period) {
+      setView('video');
+    }
+  };
 
-          const QUIZ_QUESTIONS = [
-            { id: 1, timestamp: 70, text: "What did Pizarro do in 1527 to test the loyalty of his men?", options: ["Built a fortress", "Burned the ships", "Drew a line in the sand", "Executed the mutineers"], correctIndex: 2 },
-            { id: 2, timestamp: 177, text: "Unlike the Europeans, the Incas lived in 'sacred time' where they worshipped what as God?", options: ["The Moon", "The Sun", "The Earth", "The Ocean"], correctIndex: 1 },
-            { id: 3, timestamp: 215, text: "Who was with Pizarro on his return to Peru in 1532?", options: ["Surviving soldiers and 4 of his brothers", "The King of Spain", "1,000 professional mercenaries", "No one; he returned alone"], correctIndex: 0 },
-            { id: 4, timestamp: 290, text: "Pizarro taught Spanish to two Indians for what reason?", options: ["To convert them to Christianity", "To help them escape", "To use them as interpreters for Quechua", "To teach them how to read the Bible"], correctIndex: 2 },
-            { id: 5, timestamp: 325, text: "What crop did the Spaniards taste for the first time in the Andes?", options: ["Corn", "Tomato", "Potato", "Chili Peppers"], correctIndex: 2 },
-            { id: 6, timestamp: 375, text: "Approximately how many men did Pizarro have when he entered the Inca Empire?", options: ["164 men", "1,000 men", "5,000 men", "10,000 men"], correctIndex: 0 },
-            { id: 7, timestamp: 425, text: "How long did the roads of the Inca Empire stretch?", options: ["500 miles", "1,000 miles", "3,000 miles", "10,000 miles"], correctIndex: 2 },
-            { id: 8, timestamp: 500, text: "What did Pizarro's secretary note about the Inca hill fortresses?", options: ["They were made of wood", "They were easily destroyed", "They were built with steep rocks on either side", "They were empty"], correctIndex: 2 },
-            { id: 9, timestamp: 563, text: "How many Inca soldiers were estimated to be at Cajamarca?", options: ["5,000", "15,000", "30,000", "100,000"], correctIndex: 2 },
-            { id: 10, timestamp: 615, text: "Where was Atahualpa taking the waters when the two worlds met?", options: ["The Royal Palace", "A Temple", "The Hot Springs", "A Battleground"], correctIndex: 2 },
-            { id: 11, timestamp: 690, text: "What was the first point of the Inca spy's report to Atahualpa?", options: ["The Spanish were gods", "They were immortal", "They are not gods", "They are giants"], correctIndex: 2 },
-            { id: 12, timestamp: 755, text: "What 'power' did the Inca spy believe the Spanish Barber possessed?", options: ["He could see the future", "He could rejuvenate people with fresh skin", "He could fly", "He could turn lead into gold"], correctIndex: 1 },
-            { id: 13, timestamp: 809, text: "What was Atahualpa's royal cloak made of?", options: ["Llama wool", "Gold thread", "Vampire bat skins", "Fine cotton"], correctIndex: 2 },
-            { id: 14, timestamp: 865, text: "What did the priest Valde ask the Inca to do first?", options: ["Surrender his gold", "Abandon his religion and embrace Christ", "Draw a map of the empire", "Kill his generals"], correctIndex: 1 },
-            { id: 15, timestamp: 895, text: "What did Atahualpa do with the Bible/Prayer book?", options: ["He kissed it", "He threw it on the floor", "He tried to read it", "He hid it in his cloak"], correctIndex: 1 },
-            { id: 16, timestamp: 935, text: "How many Incas reportedly died during the massacre at the square?", options: ["60", "600", "6,000", "60,000"], correctIndex: 2 },
-            { id: 17, timestamp: 975, text: "What was Atahualpa's ransom offer?", options: ["To fill a room with gold", "To give away his crown", "To become a Spanish subject", "To reveal the location of El Dorado"], correctIndex: 0 },
-            { id: 18, timestamp: 1065, text: "Who was Waman Poma?", options: ["A Spanish priest", "An Inca general", "An author of Inca descent", "Pizarro's secretary"], correctIndex: 2 },
-            { id: 19, timestamp: 1095, text: "How did Waman Poma describe the conquest?", options: ["A glorious victory", "A necessary evil", "The world upside down", "A spiritual awakening"], correctIndex: 2 },
-            { id: 20, timestamp: 1210, text: "Despite paying the ransom, what was Atahualpa's fate?", options: ["He was released", "He was put on trial and executed", "He escaped to the jungle", "He was sent to Spain"], correctIndex: 1 },
-            { id: 21, timestamp: 1383, text: "What city was the navel of the earth and sacred center of the Inca world?", options: ["Lima", "Quito", "Cusco", "Machu Picchu"], correctIndex: 2 },
-            { id: 22, timestamp: 1398, text: "The fall of Cusco symbolized the triumph of what kind of time?", options: ["Sacred time", "Profane time", "Eternal time", "Modern time"], correctIndex: 1 },
-            { id: 23, timestamp: 1475, text: "Who did Pizarro appoint as the puppet King?", options: ["Atahualpa", "Manco Inca", "Waman Poma", "Huayna Capac"], correctIndex: 1 },
-            { id: 24, timestamp: 1517, text: "Manco Inca described the foreigners as being sent by whom?", options: ["God", "The King of Spain", "The Devil", "The Sun"], correctIndex: 2 },
-            { id: 25, timestamp: 1599, text: "Where did Spanish survival hang during the Inca uprising?", options: ["The taking of the fortress at Sacsayhuamán", "The escape to the coast", "A naval battle", "A deal with the Aztecs"], correctIndex: 0 },
-            { id: 26, timestamp: 1740, text: "Machu Picchu served as a place where what could greet the sun?", options: ["The Inca Army", "Living priests", "The mummies of dead Incas", "Spanish captives"], correctIndex: 2 },
-            { id: 27, timestamp: 1868, text: "What made the mountain seem like it was 'about to crash' on the Spaniards?", options: ["An earthquake", "A landslide", "The roar of the Inca Army", "A volcanic eruption"], correctIndex: 2 },
-            { id: 28, timestamp: 2007, text: "Manco Inca's speech told his people to keep what hidden in their hearts?", options: ["Hatred for Pizarro", "The location of gold", "Their ceremonies and gods", "Plans for a new city"], correctIndex: 2 },
-            { id: 29, timestamp: 2540, text: "What act of revenge did Gonzalo Pizarro take against Manco?", options: ["Destroyed Cusco", "Stole all the gold", "Killed Manco's wife", "Burned the jungle"], correctIndex: 2 },
-            { id: 30, timestamp: 2676, text: "How was Manco Inca eventually killed?", options: ["In battle", "By a snake bite", "Stabbed by Spanish guests during a game", "Executed by his own people"], correctIndex: 2 }
-        ];
+  const changeSpeed = (rate) => {
+    setPlaybackRate(rate);
+    if (playerRef.current) playerRef.current.setPlaybackRate(rate);
+  };
 
-        const SALT = "inca_v2_secure_";
-        const encodeBase64 = (str) => btoa(unescape(encodeURIComponent(str)));
-        const decodeBase64 = (str) => decodeURIComponent(escape(atob(str)));
+  // --- DATOS PARA VISTA DE ADMINISTRADOR (REGLA 1 Y 2) ---
+  useEffect(() => {
+    if (view === 'admin' && user) {
+      // Usar ruta de colección (segmentos impares)
+      const q = collection(db, 'artifacts', appId, 'public', 'data', 'sessions');
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        setResults(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      }, (error) => console.error("Error al obtener datos:", error));
+      return () => unsubscribe();
+    }
+  }, [view, user]);
 
-        const getSavedNum = (key) => {
-            try {
-                const saved = localStorage.getItem(key);
-                if (saved) return parseFloat(decodeBase64(saved).replace(SALT, '')) || 0;
-            } catch(e) {}
-            return 0;
-        };
-        
-        const getSavedStr = (key) => {
-            try {
-                const saved = localStorage.getItem(key);
-                if (saved) return decodeBase64(saved).replace(SALT, '');
-            } catch(e) {}
-            return "";
-        };
+  return (
+    <div className="min-h-screen bg-slate-950 text-white font-sans selection:bg-red-500">
+      {/* Navegación */}
+      <nav className="p-4 border-b border-white/10 flex justify-between items-center bg-black/40 backdrop-blur-md sticky top-0 z-50">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-red-600 rounded-xl flex items-center justify-center font-black shadow-lg shadow-red-600/20 italic">V</div>
+          <div>
+            <h1 className="font-bold text-lg leading-tight uppercase tracking-tighter text-red-500">Examen Seguro</h1>
+            <p className="text-[10px] text-slate-500 uppercase font-black">BBC: La Conquista de los Incas</p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => setView('login')} className={`px-4 py-2 rounded-full text-xs font-bold transition ${view !== 'admin' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-white/5'}`}>Estudiante</button>
+          <button onClick={() => setView('admin')} className={`px-4 py-2 rounded-full text-xs font-bold transition ${view === 'admin' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-white/5'}`}>Registro</button>
+        </div>
+      </nav>
 
-        const TEACHER_PIN = "1234";
+      <main className="max-w-6xl mx-auto p-4 md:p-8">
+        {/* VISTA DE INICIO / ADVERTENCIA */}
+        {view === 'login' && (
+          <div className="max-w-xl mx-auto mt-4 space-y-6">
+            <div className="bg-red-950/30 border-2 border-red-500/50 p-6 rounded-3xl text-center">
+              <div className="text-4xl mb-4">⚠️</div>
+              <h2 className="text-2xl font-black uppercase text-red-500 mb-2 tracking-tighter">Advertencia de Integridad</h2>
+              <p className="text-slate-300 text-sm font-medium leading-relaxed">
+                Abrir otras pestañas, cambiar de ventana o hacer clic fuera del reproductor activará una 
+                <span className="text-red-400 font-bold"> Alerta de Fraude</span>. 
+                Las violaciones se registran en tiempo real. Múltiples alertas pueden resultar en una calificación de <span className="text-red-400 font-bold underline">CERO (0)</span>.
+              </p>
+            </div>
 
-        const App = () => {
-            const [view, setView] = useState('instructions'); 
-            const [player, setPlayer] = useState(null);
-            const [isPlaying, setIsPlaying] = useState(false);
-            const [currentTime, setCurrentTime] = useState(() => getSavedNum('inca_video_curr_time_hash'));
-            const [ccEnabled, setCcEnabled] = useState(false);
-            const [playbackRate, setPlaybackRate] = useState(1);
-            const [isFullscreen, setIsFullscreen] = useState(false);
-            
-            const [maxTimeWatched, setMaxTimeWatched] = useState(() => getSavedNum('inca_video_max_time_hash'));
-            const maxTimeWatchedRef = useRef(maxTimeWatched);
-            
-            const [firstName, setFirstName] = useState(() => getSavedStr('inca_video_first_name'));
-            const [lastName, setLastName] = useState(() => getSavedStr('inca_video_last_name'));
-            const [studentPeriod, setStudentPeriod] = useState(() => getSavedStr('inca_video_period'));
-            const [studentEmail, setStudentEmail] = useState(() => getSavedStr('inca_video_email'));
+            <form onSubmit={handleStart} className="bg-slate-900 p-8 rounded-3xl border border-white/5 shadow-2xl space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase ml-2 mb-1 block">Nombre</label>
+                  <input required className="w-full bg-black border border-white/10 p-3 rounded-xl outline-none focus:border-red-500 transition-all" value={studentInfo.firstName} onChange={e => setStudentInfo({...studentInfo, firstName: e.target.value})} />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase ml-2 mb-1 block">Apellido</label>
+                  <input required className="w-full bg-black border border-white/10 p-3 rounded-xl outline-none focus:border-red-500 transition-all" value={studentInfo.lastName} onChange={e => setStudentInfo({...studentInfo, lastName: e.target.value})} />
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-500 uppercase ml-2 mb-1 block">Periodo</label>
+                <select required className="w-full bg-black border border-white/10 p-3 rounded-xl outline-none focus:border-red-500 transition-all" value={studentInfo.period} onChange={e => setStudentInfo({...studentInfo, period: e.target.value})}>
+                  <option value="">Seleccionar Periodo</option>
+                  {[1,2,3,4,5,6].map(p => <option key={p} value={p}>Periodo {p}</option>)}
+                </select>
+              </div>
+              <button type="submit" className="w-full bg-red-600 hover:bg-red-500 py-4 rounded-2xl font-black uppercase text-sm tracking-widest transition-all shadow-xl shadow-red-600/20 active:scale-95">
+                Bloquear Navegador e Iniciar
+              </button>
+            </form>
+          </div>
+        )}
 
-            const [violations, setViolations] = useState(() => getSavedNum('inca_video_violations_hash'));
-            const violationsRef = useRef(violations);
+        {/* VISTA DE VIDEO */}
+        {view === 'video' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center px-4">
+              <div className="flex gap-4 items-center">
+                <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Velocidad:</span>
+                {[1, 1.25, 1.5].map(rate => (
+                  <button 
+                    key={rate} 
+                    onClick={() => changeSpeed(rate)}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold border transition-all ${playbackRate === rate ? 'bg-red-600 border-red-600' : 'border-white/10 hover:border-white/30'}`}
+                  >
+                    {rate}x
+                  </button>
+                ))}
+              </div>
+              <div className="bg-red-500/10 border border-red-500/20 px-4 py-1.5 rounded-full flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${violations > 0 ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`} />
+                <span className="text-[10px] font-black uppercase tracking-tighter">Alertas de Seguridad: {violations}</span>
+              </div>
+            </div>
 
-            const [activeQuestion, setActiveQuestion] = useState(null);
-            const [studentAnswers, setStudentAnswers] = useState(() => {
-                try {
-                    const saved = localStorage.getItem('inca_video_answers_hash');
-                    if (saved) return JSON.parse(decodeBase64(saved).replace(SALT, ''));
-                } catch(e) {}
-                return {};
-            });
+            <div 
+              ref={videoContainerRef}
+              className="relative aspect-video bg-black rounded-[2.5rem] overflow-hidden shadow-2xl border border-white/5 group"
+            >
+              <div id="player" className="w-full h-full" />
+              
+              {videoEnded && (
+                <div className="absolute inset-0 bg-black/90 flex items-center justify-center p-8 text-center z-[60]">
+                  <div className="max-w-md">
+                    <div className="text-6xl mb-6">🏁</div>
+                    <h2 className="text-3xl font-black uppercase mb-4">Video Finalizado</h2>
+                    <p className="text-slate-400 mb-8 font-medium">Tu sesión ha sido registrada. Ahora puedes continuar con tu hoja de trabajo impresa.</p>
+                    <button onClick={() => window.location.reload()} className="bg-white text-black px-8 py-3 rounded-full font-black uppercase text-xs tracking-widest">Reiniciar Sesión</button>
+                  </div>
+                </div>
+              )}
+            </div>
 
-            const [selectedOption, setSelectedOption] = useState(null);
-            const [showFeedback, setShowFeedback] = useState(false);
-            const [isTeacherMode, setIsTeacherMode] = useState(false);
-            const [showPinModal, setShowPinModal] = useState(false);
-            const [pinInput, setPinInput] = useState("");
-            const [pinError, setPinError] = useState(false);
+            <div className="text-center p-4">
+              <p className="text-[10px] text-slate-600 font-black uppercase tracking-[0.4em]">NO HAGAS CLIC FUERA DEL VIDEO • NAVEGADOR MONITOREADO</p>
+            </div>
+          </div>
+        )}
 
-            const playerContainerRef = useRef(null);
-            const intervalRef = useRef(null);
-            const videoWrapperRef = useRef(null);
-            const lastSeekTimeRef = useRef(0);
-            const prevTimeRef = useRef(undefined);
-            const lastTriggeredQuestionIdRef = useRef(null);
+        {/* VISTA DE ADMINISTRADOR */}
+        {view === 'admin' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-end">
+              <div>
+                <h2 className="text-3xl font-black uppercase tracking-tighter italic">Registro del Profesor</h2>
+                <p className="text-slate-500 text-sm">Monitoreo en tiempo real para {appId}</p>
+              </div>
+            </div>
 
-            const handleFirstNameChange = (e) => {
-                setFirstName(e.target.value);
-                localStorage.setItem('inca_video_first_name', encodeBase64(SALT + e.target.value));
-            };
-            const handleLastNameChange = (e) => {
-                setLastName(e.target.value);
-                localStorage.setItem('inca_video_last_name', encodeBase64(SALT + e.target.value));
-            };
-            const handlePeriodChange = (e) => {
-                setStudentPeriod(e.target.value);
-                localStorage.setItem('inca_video_period', encodeBase64(SALT + e.target.value));
-            };
-            const handleEmailChange = (e) => {
-                setStudentEmail(e.target.value);
-                localStorage.setItem('inca_video_email', encodeBase64(SALT + e.target.value));
-            };
-
-            const handlePinSubmit = () => {
-                if (pinInput === TEACHER_PIN) {
-                    setIsTeacherMode(true);
-                    setShowPinModal(false);
-                    setPinInput("");
-                } else {
-                    setPinError(true);
-                }
-            };
-
-            useEffect(() => {
-                const handleFullscreenChange = () => {
-                    setIsFullscreen(!!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement));
-                };
-                document.addEventListener('fullscreenchange', handleFullscreenChange);
-                document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
-                return () => {
-                    document.removeEventListener('fullscreenchange', handleFullscreenChange);
-                    document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
-                };
-            }, []);
-
-            useEffect(() => {
-                const handleVisibilityChange = () => {
-                    if (document.hidden && view === 'video' && !isTeacherMode) {
-                        if (player) player.pauseVideo();
-                        setViolations(v => {
-                            const n = v + 1;
-                            violationsRef.current = n;
-                            localStorage.setItem('inca_video_violations_hash', encodeBase64(SALT + n.toString()));
-                            return n;
-                        });
-                    }
-                };
-                document.addEventListener("visibilitychange", handleVisibilityChange);
-                return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-            }, [view, player, isTeacherMode]);
-
-            useEffect(() => {
-                if (view !== 'video') return;
-                if (!window.YT) {
-                    const tag = document.createElement('script');
-                    tag.src = "https://www.youtube.com/iframe_api";
-                    document.body.appendChild(tag);
-                    window.onYouTubeIframeAPIReady = initializePlayer;
-                } else {
-                    initializePlayer();
-                }
-                return () => clearInterval(intervalRef.current);
-            }, [view]);
-
-            const initializePlayer = () => {
-                const startTime = Math.floor(currentTime);
-                new window.YT.Player(playerContainerRef.current, {
-                    width: '100%',
-                    height: '100%',
-                    videoId: VIDEO_ID,
-                    host: 'https://www.youtube-nocookie.com',
-                    playerVars: {
-                        controls: 0, disablekb: 1, rel: 0, modestbranding: 1, fs: 0,
-                        iv_load_policy: 3, start: startTime, cc_load_policy: 1, playsinline: 1
-                    },
-                    events: {
-                        onReady: (event) => setPlayer(event.target),
-                        onStateChange: (event) => setIsPlaying(event.data === window.YT.PlayerState.PLAYING)
-                    }
-                });
-            };
-
-            useEffect(() => {
-                if (isPlaying && player && view === 'video') {
-                    intervalRef.current = setInterval(() => {
-                        const time = player.getCurrentTime();
-                        
-                        // --- FORCED FINISH AT 2676 ---
-                        if (time >= FORCE_FINISH_TIME && !isTeacherMode) {
-                            player.pauseVideo();
-                            handleFinalSubmit();
-                            return;
-                        }
-
-                        if (time >= MAX_ALLOWED_TIME) {
-                            player.pauseVideo();
-                            handleFinalSubmit();
-                            return;
-                        }
-
-                        const prev = prevTimeRef.current || time;
-                        if (!isTeacherMode && time > prev + 2.5 && (Date.now() - lastSeekTimeRef.current > 1000)) {
-                            player.seekTo(prev, true);
-                            return;
-                        }
-
-                        setCurrentTime(time);
-                        localStorage.setItem('inca_video_curr_time_hash', encodeBase64(SALT + time.toString()));
-
-                        if (time > maxTimeWatchedRef.current) {
-                            maxTimeWatchedRef.current = time;
-                            setMaxTimeWatched(time);
-                            localStorage.setItem('inca_video_max_time_hash', encodeBase64(SALT + time.toString()));
-                        }
-
-                        const upcoming = QUIZ_QUESTIONS.find(q => time >= q.timestamp && time < q.timestamp + 1.5);
-                        if (upcoming && lastTriggeredQuestionIdRef.current !== upcoming.id) {
-                            player.pauseVideo();
-                            setActiveQuestion(upcoming);
-                            lastTriggeredQuestionIdRef.current = upcoming.id;
-                        }
-                        prevTimeRef.current = time;
-                    }, 500);
-                } else {
-                    clearInterval(intervalRef.current);
-                }
-            }, [isPlaying, player, view, studentAnswers, isTeacherMode]);
-
-            const togglePlayPause = () => isPlaying ? player.pauseVideo() : player.playVideo();
-            const handleRewind = () => {
-                const newTime = Math.max(0, player.getCurrentTime() - 10);
-                lastSeekTimeRef.current = Date.now();
-                lastTriggeredQuestionIdRef.current = null; 
-                player.seekTo(newTime, true);
-            };
-
-            const toggleFullscreen = () => {
-                const el = videoWrapperRef.current;
-                if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-                    if (el.requestFullscreen) el.requestFullscreen();
-                    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-                } else {
-                    if (document.exitFullscreen) document.exitFullscreen();
-                    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-                }
-            };
-
-            const handleContinueVideo = () => {
-                const isCorrect = selectedOption === activeQuestion.correctIndex;
-                const newAnswers = { ...studentAnswers, [activeQuestion.id]: isCorrect };
-                setStudentAnswers(newAnswers);
-                localStorage.setItem('inca_video_answers_hash', encodeBase64(SALT + JSON.stringify(newAnswers)));
-                setActiveQuestion(null);
-                setSelectedOption(null);
-                setShowFeedback(false);
-                player.playVideo();
-            };
-
-            const handleFinalSubmit = () => {
-                setView('finished');
-                downloadJPG();
-            };
-
-            const downloadJPG = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = 1200; canvas.height = 850;
-                const ctx = canvas.getContext('2d');
-                
-                // 1. COMPLEX SECURITY BACKGROUND (Hard to forge)
-                const grad = ctx.createLinearGradient(0, 0, 1200, 850);
-                grad.addColorStop(0, '#0f172a'); grad.addColorStop(0.5, '#1e1b4b'); grad.addColorStop(1, '#020617');
-                ctx.fillStyle = grad; ctx.fillRect(0, 0, 1200, 850);
-
-                // 2. SECURITY LINES (Moire pattern logic)
-                ctx.strokeStyle = 'rgba(245, 158, 11, 0.05)';
-                ctx.lineWidth = 1;
-                for (let i = 0; i < 1200; i += 4) {
-                    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(1200 - i, 850); ctx.stroke();
-                }
-
-                // 3. MICRO-TEXT WATERMARK (Anti-duplication)
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
-                ctx.font = 'bold 10px Courier New';
-                const watermarkText = `INCA_SECURE_VERIFICATION_${firstName.toUpperCase()}_${lastName.toUpperCase()}_SCORE_SYNC_`.repeat(5);
-                for (let i = 0; i < 850; i += 15) {
-                    ctx.fillText(watermarkText, (i % 30) * -1, i);
-                }
-
-                // 4. MAIN CERTIFICATE BOX
-                ctx.shadowBlur = 40; ctx.shadowColor = 'rgba(0,0,0,0.5)';
-                ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
-                ctx.fillRect(100, 100, 1000, 650);
-                ctx.shadowBlur = 0;
-                
-                // Double Border
-                ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 6; ctx.strokeRect(100, 100, 1000, 650);
-                ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 1; ctx.strokeRect(110, 110, 980, 630);
-
-                // 5. TITLES with security styling
-                ctx.textAlign = 'center'; ctx.fillStyle = '#f8fafc'; ctx.font = '900 48px Georgia, serif';
-                ctx.fillText('INCA CONQUEST ASSESSMENT', 600, 200);
-                
-                ctx.fillStyle = '#f59e0b'; ctx.font = 'bold 20px Arial';
-                ctx.fillText('OFFICIAL ENCRYPTED PERFORMANCE RECORD', 600, 240);
-
-                // 6. STUDENT DATA (Difficult font style)
-                ctx.fillStyle = '#ffffff'; ctx.font = 'italic 700 60px "Times New Roman"';
-                ctx.fillText(`${firstName} ${lastName}`, 600, 350);
-                
-                ctx.fillStyle = '#94a3b8'; ctx.font = 'bold 24px Courier New';
-                ctx.fillText(`PERIOD: ${studentPeriod} | SESSION: ${new Date().toLocaleTimeString()}`, 600, 400);
-
-                // 7. SCORE (Big and highlighted)
-                const finalScore = Object.values(studentAnswers).filter(v => v).length;
-                ctx.font = '900 120px Arial Black';
-                ctx.fillStyle = finalScore >= 24 ? '#4ade80' : (finalScore >= 18 ? '#fbbf24' : '#ef4444');
-                ctx.fillText(`${finalScore} / 30`, 600, 550);
-                
-                ctx.font = 'bold 20px Arial'; ctx.fillStyle = '#64748b';
-                ctx.fillText('VERIFIED SCORE BY VULTURE-QUIZ ENGINE', 600, 580);
-
-                // 8. SECURITY FOOTER (Verification Hash)
-                const securityHash = btoa(`${firstName}_${finalScore}_${violations}_${Date.now()}`).substring(0, 32);
-                ctx.fillStyle = 'rgba(245, 158, 11, 0.5)';
-                ctx.font = '12px Courier New';
-                ctx.fillText(`V-HASH: [${securityHash.match(/.{1,8}/g).join('-')}]`, 600, 710);
-                ctx.fillText(`FLAGS: ${violations} | APP_ID: INCA_BBC_2676`, 600, 730);
-
-                // 9. QR CODE MOCKUP (Security element)
-                ctx.strokeStyle = '#f59e0b'; ctx.strokeRect(150, 610, 80, 80);
-                ctx.fillStyle = '#f59e0b'; ctx.fillRect(160, 620, 20, 20); ctx.fillRect(200, 620, 20, 20); ctx.fillRect(160, 660, 20, 20);
-
-                const link = document.createElement('a');
-                link.download = `Inca_Assessment_${lastName}_${firstName}.jpg`;
-                link.href = canvas.toDataURL('image/jpeg', 1.0);
-                link.click();
-            };
-
-            if (view === 'instructions') return (
-                <div className="bg-slate-800 p-8 rounded-[2.5rem] shadow-2xl border border-slate-700 w-full max-w-md mx-auto text-center relative overflow-hidden">
-                    <div className="scanner"></div>
-                    <h1 className="text-2xl font-black text-amber-500 mb-2 uppercase tracking-widest">Inca Conquest</h1>
-                    <p className="text-[10px] text-slate-500 font-bold mb-8 uppercase tracking-widest">Secure BBC Assessment System</p>
-                    <div className="space-y-4 mb-8">
-                        <input placeholder="First Name" value={firstName} onChange={handleFirstNameChange} className="w-full bg-slate-900 p-3.5 rounded-xl border border-slate-700 outline-none focus:border-amber-500 transition-all font-bold" />
-                        <input placeholder="Last Name" value={lastName} onChange={handleLastNameChange} className="w-full bg-slate-900 p-3.5 rounded-xl border border-slate-700 outline-none focus:border-amber-500 transition-all font-bold" />
-                        <select value={studentPeriod} onChange={handlePeriodChange} className="w-full bg-slate-900 p-3.5 rounded-xl border border-slate-700 outline-none focus:border-amber-500 font-bold">
-                            <option value="">Select Period</option>
-                            {['1','2','3','4','5','6'].map(p => <option key={p} value={p}>Period {p}</option>)}
-                        </select>
-                        <input placeholder="Email" value={studentEmail} onChange={handleEmailChange} className="w-full bg-slate-900 p-3.5 rounded-xl border border-slate-700 outline-none focus:border-amber-500 transition-all font-bold" />
-                    </div>
-                    <button 
-                        disabled={!firstName || !lastName || !studentPeriod} 
-                        onClick={() => setView('video')} 
-                        className="bg-amber-600 w-full py-5 rounded-2xl font-black uppercase transition hover:bg-amber-500 disabled:opacity-30 shadow-xl shadow-amber-500/10 active:scale-95"
-                    >
-                        Enter Assessment
-                    </button>
-                    <button onClick={() => setShowPinModal(true)} className="mt-6 text-[10px] text-slate-600 hover:text-slate-400 uppercase font-black tracking-widest">Teacher Login</button>
-                    {showPinModal && (
-                        <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[100] p-4 backdrop-blur-sm">
-                            <div className="bg-slate-800 p-8 rounded-3xl w-full max-w-xs shadow-2xl border border-slate-700">
-                                <h2 className="font-black text-amber-500 mb-6 uppercase tracking-widest text-center">Auth Required</h2>
-                                <input type="password" value={pinInput} onChange={e => setPinInput(e.target.value)} className="w-full bg-slate-900 p-4 rounded-xl mb-4 text-center text-2xl tracking-[0.5em] font-black border border-slate-700" autoFocus />
-                                <button onClick={handlePinSubmit} className="bg-amber-600 w-full py-3 rounded-xl font-black uppercase text-sm tracking-widest">Unlock</button>
-                                <button onClick={() => setShowPinModal(false)} className="w-full py-3 text-[10px] text-slate-500 font-black uppercase tracking-widest mt-2">Cancel</button>
-                            </div>
-                        </div>
+            <div className="bg-slate-900 rounded-[2rem] border border-white/5 overflow-hidden shadow-2xl">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-white/5 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    <tr>
+                      <th className="p-5">Estudiante</th>
+                      <th className="p-5">Periodo</th>
+                      <th className="p-5 text-center">Alertas</th>
+                      <th className="p-5">Última Actividad</th>
+                      <th className="p-5">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {results.length === 0 ? (
+                      <tr><td colSpan="5" className="p-20 text-center text-slate-500 italic">No hay datos de estudiantes aún...</td></tr>
+                    ) : (
+                      results.map(r => (
+                        <tr key={r.id} className="hover:bg-white/[0.02] transition-colors">
+                          <td className="p-5">
+                            <div className="font-bold text-slate-200">{r.lastName}, {r.firstName}</div>
+                            <div className="text-[10px] text-slate-600 font-mono uppercase">{r.uid}</div>
+                          </td>
+                          <td className="p-5 text-sm font-bold">P{r.period}</td>
+                          <td className="p-5 text-center">
+                            <span className={`text-xl font-black ${r.flags > 0 ? 'text-red-500' : 'text-green-500'}`}>
+                              {r.flags || 0}
+                            </span>
+                          </td>
+                          <td className="p-5 text-xs text-slate-500">
+                            {r.lastAlert ? <span className="text-red-400/80 font-bold uppercase tracking-tighter">[{r.lastAlert}]</span> : 'Sesión Limpia'}
+                            <div className="mt-1">{new Date(r.timestamp).toLocaleTimeString()}</div>
+                          </td>
+                          <td className="p-5">
+                            <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${r.status === 'Finalizado' ? 'bg-green-500/20 text-green-400' : 'bg-blue-500/20 text-blue-400'}`}>
+                              {r.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
                     )}
-                </div>
-            );
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
 
-            if (view === 'finished') return (
-                <div className="bg-slate-800 p-12 rounded-[3rem] text-center shadow-2xl border-4 border-amber-600/30 max-w-2xl mx-auto relative overflow-hidden">
-                    <div className="absolute top-0 left-0 w-full h-2 bg-amber-500"></div>
-                    <div className="text-6xl mb-6">✅</div>
-                    <h1 className="text-4xl font-black mb-2 uppercase tracking-tighter">Assessment Captured</h1>
-                    <p className="text-slate-400 font-bold mb-10 leading-relaxed uppercase text-sm">
-                        Attention {firstName}: Your score has been verified and your certificate downloaded.
-                    </p>
-                    
-                    <div className="bg-slate-900/50 p-8 rounded-[2rem] border-2 border-slate-700 mb-10 text-left">
-                        <h3 className="text-amber-500 font-black text-xs uppercase tracking-[0.3em] mb-4">Submission Instructions</h3>
-                        <ol className="text-slate-300 text-sm font-bold space-y-4">
-                            <li className="flex gap-3"><span className="text-amber-500">1.</span> Locate the .jpg file just downloaded to your device.</li>
-                            <li className="flex gap-3"><span className="text-amber-500">2.</span> Go to your assigned Google Classroom task.</li>
-                            <li className="flex gap-3"><span className="text-amber-500">3.</span> Attach the image file and click "Submit".</li>
-                            <li className="flex gap-3 bg-red-500/10 p-3 rounded-lg border border-red-500/20 text-red-400 font-black">4. DO NOT CLOSE THIS WINDOW UNTIL YOU ARE SURE THE FILE IS ATTACHED.</li>
-                        </ol>
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                        <button onClick={downloadJPG} className="bg-amber-600 px-10 py-4 rounded-2xl font-black uppercase tracking-widest text-sm shadow-xl shadow-amber-500/20 active:scale-95 transition-all">Redownload Certificate</button>
-                        <button onClick={() => window.location.reload()} className="bg-slate-700 px-10 py-4 rounded-2xl font-black uppercase tracking-widest text-sm text-slate-400 hover:text-white transition-all">Exit System</button>
-                    </div>
-                </div>
-            );
-
-            return (
-                <div className="w-full flex flex-col gap-4 no-select relative">
-                    {!isFullscreen && (
-                        <div className="flex justify-between items-end px-2">
-                            <div>
-                                <h2 className="text-xs font-black text-amber-500 uppercase tracking-widest">Inca Secure Assessment</h2>
-                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Encryption: Active • Monitoring: On</p>
-                            </div>
-                            <div className="text-right">
-                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Validated Score: <span className="text-green-500">{Object.values(studentAnswers).filter(v => v).length}/30</span></p>
-                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Security Flags: <span className="text-red-500">{violations}</span></p>
-                            </div>
-                        </div>
-                    )}
-
-                    <div 
-                        ref={videoWrapperRef} 
-                        className={`relative group bg-black overflow-hidden ${isFullscreen ? 'w-screen h-screen' : 'w-full aspect-video rounded-[2.5rem] shadow-2xl border border-slate-800'}`}
-                    >
-                        <div ref={playerContainerRef} className="absolute inset-0 yt-overlay"></div>
-                        
-                        {activeQuestion && (
-                            <div className="absolute inset-0 bg-slate-900/98 z-[60] flex items-center justify-center p-6 backdrop-blur-md">
-                                <div className="max-w-xl w-full bg-slate-800 p-10 rounded-[3rem] border border-slate-600 shadow-2xl relative">
-                                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-amber-500 px-6 py-1 rounded-full text-[10px] font-black text-slate-900 uppercase tracking-[0.2em]">
-                                        Question {activeQuestion.id} / 30
-                                    </div>
-                                    <h2 className="text-lg sm:text-2xl font-bold mb-10 leading-tight text-center">{activeQuestion.text}</h2>
-                                    <div className="space-y-4">
-                                        {activeQuestion.options.map((opt, i) => (
-                                            <button 
-                                                key={i} 
-                                                onClick={() => { setSelectedOption(i); setShowFeedback(true); }} 
-                                                disabled={showFeedback}
-                                                className={`w-full text-left p-5 rounded-2xl border-2 font-bold transition flex items-start gap-4 text-sm sm:text-base ${showFeedback ? (i === activeQuestion.correctIndex ? 'border-green-500 bg-green-500/10 text-green-400' : (i === selectedOption ? 'border-red-500 bg-red-500/10 text-red-400' : 'border-slate-800 opacity-20')) : 'border-slate-700 hover:border-amber-500 bg-slate-900/50 hover:bg-slate-900 shadow-inner'}`}
-                                            >
-                                                <span className="text-amber-500 font-black">{String.fromCharCode(65+i)}.</span>
-                                                <span className="flex-1">{opt}</span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                    {showFeedback && (
-                                        <button onClick={handleContinueVideo} className="mt-10 bg-amber-600 w-full py-5 rounded-2xl font-black uppercase text-sm tracking-widest shadow-xl shadow-amber-500/20 active:scale-95 transition-all">Synchronize & Continue</button>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
-                        <div className={`absolute bottom-0 left-0 w-full p-8 bg-gradient-to-t from-black via-black/80 to-transparent z-50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-5 ${activeQuestion ? 'hidden' : ''}`}>
-                            <div className="relative w-full h-1.5 bg-slate-800 rounded-full cursor-pointer" onClick={(e) => {
-                                if (!player || isTeacherMode) {
-                                    const rect = e.currentTarget.getBoundingClientRect();
-                                    const targetTime = ((e.clientX - rect.left) / rect.width) * MAX_ALLOWED_TIME;
-                                    lastSeekTimeRef.current = Date.now();
-                                    lastTriggeredQuestionIdRef.current = null;
-                                    player.seekTo(targetTime, true);
-                                }
-                            }}>
-                                {QUIZ_QUESTIONS.map(q => (
-                                    <div 
-                                        key={q.id} 
-                                        className={`absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full z-10 transition-all ${studentAnswers[q.id] === true ? 'bg-green-500 scale-125 shadow-[0_0_10px_#22c55e]' : (studentAnswers[q.id] === false ? 'bg-red-500 scale-125 shadow-[0_0_10px_#ef4444]' : 'bg-amber-300 shadow-[0_0_5px_#f59e0b]')}`} 
-                                        style={{ left: `${(q.timestamp/MAX_ALLOWED_TIME)*100}%` }}
-                                    ></div>
-                                ))}
-                                <div className="absolute left-0 top-0 h-full bg-amber-500 rounded-full shadow-[0_0_15px_rgba(245,158,11,0.5)]" style={{ width: `${(currentTime/MAX_ALLOWED_TIME)*100}%` }}></div>
-                            </div>
-
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-8">
-                                    <button onClick={togglePlayPause} className="hover:text-amber-500 transition-all active:scale-90">
-                                        {isPlaying ? <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> : <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>}
-                                    </button>
-                                    <button onClick={handleRewind} className="hover:text-amber-500 transition-all active:scale-90 text-[10px] font-black uppercase flex items-center gap-2">
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="4" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg> 10s
-                                    </button>
-                                    <button onClick={() => { const r = playbackRate === 1 ? 1.25 : 1; setPlaybackRate(r); player.setPlaybackRate(r); }} className={`px-3 py-1 rounded-lg border-2 text-[10px] font-black transition-all ${playbackRate > 1 ? 'border-amber-500 text-amber-500' : 'border-slate-600 text-slate-500'}`}>{playbackRate}x</button>
-                                </div>
-
-                                <div className="flex items-center gap-8">
-                                    <div className="text-[12px] font-mono font-black text-slate-400 tracking-[0.2em]">{Math.floor(currentTime/60)}:{(Math.floor(currentTime%60)).toString().padStart(2,'0')} / 49:01</div>
-                                    <button onClick={toggleFullscreen} className="hover:text-amber-500 transition-all active:scale-90">
-                                        <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <p className="text-center text-[10px] text-slate-600 font-black uppercase tracking-[0.4em] mt-4">Security Protocol: v2.6.7.6_IRON_CLAD</p>
-                </div>
-            );
-        };
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-</body>
-</html>
+      {/* MODAL DE SEGURIDAD */}
+      {showSecurityWarning && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 animate-in fade-in duration-300">
+          <div className="max-w-md w-full bg-red-600 p-8 rounded-[3rem] text-center shadow-[0_0_50px_rgba(220,38,38,0.5)]">
+            <div className="text-6xl mb-6">🚫</div>
+            <h2 className="text-3xl font-black uppercase mb-4 tracking-tighter leading-none text-white">Violación de Seguridad</h2>
+            <p className="text-white/90 font-bold mb-8 text-sm leading-relaxed">
+              Has salido de la pantalla del video o has perdido el foco. Tu profesor ha sido notificado de esta actividad sospechosa.
+            </p>
+            <button 
+              onClick={() => setShowSecurityWarning(false)}
+              className="w-full bg-white text-red-600 py-4 rounded-2xl font-black uppercase text-xs tracking-widest hover:scale-105 transition-transform"
+            >
+              Reanudar Video
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
