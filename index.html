@@ -5,51 +5,59 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Examen Seguro - La Conquista de los Incas</title>
     
-    <!-- React y Babel para procesar JSX en el navegador -->
+    <!-- React y Babel para procesar JSX -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
-    <!-- Tailwind CSS para los estilos -->
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Firebase Compat (Versión estable para navegador) -->
+    <!-- Firebase Compat -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
-        body { font-family: 'Inter', sans-serif; overflow-x: hidden; background-color: #020617; }
+        body { 
+            font-family: 'Inter', sans-serif; 
+            overflow-x: hidden; 
+            background-color: #020617; 
+            color: white;
+            margin: 0;
+        }
         .no-select { user-select: none; -webkit-user-select: none; }
-        iframe { width: 100% !important; height: 100% !important; }
+        /* Forzar que el iframe ocupe todo el contenedor */
+        #player { width: 100%; height: 100%; border-radius: 1.5rem; }
+        .aspect-video { position: relative; width: 100%; aspect-ratio: 16 / 9; }
+        
+        /* Loader inicial */
+        #fallback-loader {
+            position: fixed; inset: 0; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; background: #020617; z-index: 9999;
+        }
+        .spinner {
+            width: 40px; height: 40px; border: 4px solid #334155;
+            border-top-color: #ef4444; border-radius: 50%; animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
-<body class="text-white no-select">
+<body class="no-select">
+    <!-- Este loader desaparece cuando React carga -->
+    <div id="fallback-loader">
+        <div class="spinner"></div>
+        <p style="margin-top: 1rem; color: #94a3b8; font-size: 0.875rem;">Cargando sistema de seguridad...</p>
+    </div>
+
     <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // --- CONFIGURACIÓN DE FIREBASE ---
-        const firebaseConfig = window.__firebase_config ? JSON.parse(window.__firebase_config) : {
-            apiKey: "",
-            authDomain: "tu-app.firebaseapp.com",
-            projectId: "tu-app",
-            storageBucket: "tu-app.appspot.com",
-            messagingSenderId: "000000000000",
-            appId: "0:000000000000:web:000000000000"
-        };
-        
-        // Inicializar Firebase
-        if (!firebase.apps.length) {
-            firebase.initializeApp(firebaseConfig);
-        }
-        const auth = firebase.auth();
-        const db = firebase.firestore();
-        const appId = window.__app_id || 'inca-secure-video';
-
         function App() {
+            const [db, setDb] = useState(null);
             const [user, setUser] = useState(null);
             const [studentInfo, setStudentInfo] = useState({ firstName: '', lastName: '', period: '' });
             const [view, setView] = useState('login'); 
@@ -58,24 +66,45 @@
             const [showSecurityWarning, setShowSecurityWarning] = useState(false);
             const [results, setResults] = useState([]);
             const [videoEnded, setVideoEnded] = useState(false);
+            const [dbStatus, setDbStatus] = useState('loading'); // 'loading', 'connected', 'demo'
 
             const playerRef = useRef(null);
             const videoContainerRef = useRef(null);
             const lastViolationTime = useRef(0);
 
-            // --- AUTENTICACIÓN (REGLA 3) ---
+            // --- INICIALIZACIÓN DE FIREBASE Y YOUTUBE ---
             useEffect(() => {
-                const initAuth = async () => {
-                    const token = window.__initial_auth_token;
-                    if (token) {
-                        await auth.signInWithCustomToken(token);
-                    } else {
-                        await auth.signInAnonymously();
+                const init = async () => {
+                    // Quitar el loader de HTML puro
+                    const loader = document.getElementById('fallback-loader');
+                    if (loader) loader.style.display = 'none';
+
+                    try {
+                        const config = window.__firebase_config ? JSON.parse(window.__firebase_config) : null;
+                        
+                        // Si no hay config (GitHub Pages estándar), entrar en modo Demo
+                        if (!config || !config.apiKey) {
+                            console.warn("Firebase no configurado. Iniciando en modo de visualización.");
+                            setDbStatus('demo');
+                        } else {
+                            if (!firebase.apps.length) firebase.initializeApp(config);
+                            const auth = firebase.auth();
+                            const firestore = firebase.firestore();
+                            setDb(firestore);
+
+                            const token = window.__initial_auth_token;
+                            if (token) await auth.signInWithCustomToken(token);
+                            else await auth.signInAnonymously();
+                            
+                            auth.onAuthStateChanged(u => setUser(u));
+                            setDbStatus('connected');
+                        }
+                    } catch (e) {
+                        console.error("Error de inicialización:", e);
+                        setDbStatus('demo');
                     }
                 };
-                initAuth();
-                const unsubscribe = auth.onAuthStateChanged(u => setUser(u));
-                return () => unsubscribe();
+                init();
             }, []);
 
             // --- MONITOREO DE SEGURIDAD ---
@@ -89,8 +118,9 @@
 
                     setViolations(prev => {
                         const newFlags = prev + 1;
-                        if (user) {
-                            // REGLA 1: /artifacts/{appId}/public/data/sessions/{uid} (Ruta par corregida)
+                        // Guardar en DB si está conectada
+                        if (db && user) {
+                            const appId = window.__app_id || 'inca-secure-video';
                             db.collection('artifacts').doc(appId)
                               .collection('public').doc('data')
                               .collection('sessions').doc(user.uid)
@@ -101,7 +131,7 @@
                                 lastAlert: reason,
                                 timestamp: new Date().toISOString(),
                                 status: 'Activo'
-                              }, { merge: true });
+                              }, { merge: true }).catch(err => console.error(err));
                         }
                         return newFlags;
                     });
@@ -110,7 +140,6 @@
 
                 const handleVisibility = () => { if (document.hidden) triggerAlert('Cambio de Pestaña'); };
                 const handleBlur = () => triggerAlert('Foco Perdido');
-                
                 const handleClickOutside = (e) => {
                     if (videoContainerRef.current && !videoContainerRef.current.contains(e.target)) {
                         triggerAlert('Clic fuera del video');
@@ -129,118 +158,131 @@
                     window.removeEventListener('blur', handleBlur);
                     document.removeEventListener('mousedown', handleClickOutside);
                 };
-            }, [view, videoEnded, user, studentInfo]);
+            }, [view, videoEnded, user, db, studentInfo]);
 
             // --- YOUTUBE API ---
             useEffect(() => {
-                if (view === 'video' && !window.YT) {
-                    const tag = document.createElement('script');
-                    tag.src = "https://www.youtube.com/iframe_api";
-                    document.body.appendChild(tag);
-                    window.onYouTubeIframeAPIReady = loadPlayer;
-                } else if (view === 'video' && window.YT) {
-                    loadPlayer();
+                if (view === 'video') {
+                    const loadYT = () => {
+                        if (window.YT && window.YT.Player) {
+                            playerRef.current = new window.YT.Player('player', {
+                                videoId: '9iImmVKrWzI',
+                                playerVars: { autoplay: 1, modestbranding: 1, rel: 0, controls: 1 },
+                                events: {
+                                    onStateChange: (e) => { 
+                                        if (e.data === window.YT.PlayerState.ENDED) {
+                                            setVideoEnded(true);
+                                            if (db && user) {
+                                                const appId = window.__app_id || 'inca-secure-video';
+                                                db.collection('artifacts').doc(appId)
+                                                  .collection('public').doc('data')
+                                                  .collection('sessions').doc(user.uid)
+                                                  .update({ status: 'Finalizado', completedAt: new Date().toISOString() });
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                        } else {
+                            // Cargar script si no existe
+                            if (!document.getElementById('yt-script')) {
+                                const tag = document.createElement('script');
+                                tag.id = 'yt-script';
+                                tag.src = "https://www.youtube.com/iframe_api";
+                                document.body.appendChild(tag);
+                            }
+                            window.onYouTubeIframeAPIReady = loadYT;
+                        }
+                    };
+                    loadYT();
                 }
             }, [view]);
 
-            const loadPlayer = () => {
-                playerRef.current = new YT.Player('player', {
-                    height: '100%',
-                    width: '100%',
-                    videoId: '9iImmVKrWzI',
-                    playerVars: { autoplay: 1, modestbranding: 1, rel: 0, controls: 1 },
-                    events: {
-                        onStateChange: (e) => { 
-                            if (e.data === YT.PlayerState.ENDED) { 
-                                setVideoEnded(true); 
-                                finalize(); 
-                            } 
-                        }
-                    }
-                });
-            };
-
-            const finalize = () => {
-                if (user) {
-                    db.collection('artifacts').doc(appId)
-                      .collection('public').doc('data')
-                      .collection('sessions').doc(user.uid)
-                      .update({ status: 'Finalizado', completedAt: new Date().toISOString() });
+            const changeSpeed = (rate) => {
+                setPlaybackRate(rate);
+                if (playerRef.current && playerRef.current.setPlaybackRate) {
+                    playerRef.current.setPlaybackRate(rate);
                 }
             };
 
-            const changeSpeed = (rate) => {
-                setPlaybackRate(rate);
-                if (playerRef.current) playerRef.current.setPlaybackRate(rate);
-            };
-
-            // --- REGISTRO PARA EL PROFESOR ---
+            // --- ESCUCHA DE DATOS PARA PROFESOR ---
             useEffect(() => {
-                if (view === 'admin' && user) {
+                if (view === 'admin' && db && user) {
+                    const appId = window.__app_id || 'inca-secure-video';
                     const q = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sessions');
                     return q.onSnapshot(snap => {
                         setResults(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
                     });
                 }
-            }, [view, user]);
+            }, [view, db, user]);
 
             return (
-                <div className="min-h-screen flex flex-col bg-slate-950 text-white">
+                <div className="min-h-screen flex flex-col bg-slate-950">
                     <nav className="p-4 border-b border-white/10 flex justify-between items-center bg-black/60 backdrop-blur-md sticky top-0 z-50">
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 bg-red-600 rounded-xl flex items-center justify-center font-black italic shadow-lg shadow-red-600/20">V</div>
                             <div>
-                                <h1 className="font-bold text-lg leading-tight text-red-500 uppercase">Examen Seguro</h1>
+                                <h1 className="font-bold text-lg leading-tight text-red-500 uppercase">Seguridad Máxima</h1>
                                 <p className="text-[10px] text-slate-500 uppercase font-black">BBC: La Conquista de los Incas</p>
                             </div>
                         </div>
                         <div className="flex gap-2">
                             <button onClick={() => setView('login')} className={`px-4 py-2 rounded-full text-xs font-bold transition ${view !== 'admin' ? 'bg-red-600' : 'hover:bg-white/10'}`}>Alumno</button>
-                            <button onClick={() => setView('admin')} className={`px-4 py-2 rounded-full text-xs font-bold transition ${view === 'admin' ? 'bg-red-600' : 'hover:bg-white/10'}`}>Profesor</button>
+                            <button onClick={() => setView('admin')} className={`px-4 py-2 rounded-full text-xs font-bold transition ${view === 'admin' ? 'bg-red-600' : 'hover:bg-white/10'}`}>Registro</button>
                         </div>
                     </nav>
 
                     <main className="flex-1 p-4 md:p-8 max-w-6xl mx-auto w-full flex flex-col justify-center">
+                        {dbStatus === 'demo' && view !== 'admin' && (
+                            <div className="mb-4 bg-amber-500/10 border border-amber-500/30 p-2 rounded-lg text-[10px] text-amber-500 text-center uppercase font-bold">
+                                Modo de Previsualización: Las alertas no se guardarán en la nube.
+                            </div>
+                        )}
+
                         {view === 'login' && (
-                            <div className="max-w-xl mx-auto space-y-6">
-                                <div className="bg-red-950/30 border-2 border-red-500/50 p-6 rounded-3xl text-center">
+                            <div className="max-w-xl mx-auto space-y-6 animate-in fade-in duration-500">
+                                <div className="bg-red-950/30 border-2 border-red-500/50 p-6 rounded-3xl text-center shadow-2xl">
                                     <h2 className="text-2xl font-black text-red-500 uppercase mb-2">Advertencia de Fraude</h2>
-                                    <p className="text-slate-300 text-sm">Cualquier intento de salir de esta pestaña o hacer clic fuera del reproductor notificará al profesor inmediatamente. No usar IA ni otras ventanas.</p>
+                                    <p className="text-slate-300 text-sm leading-relaxed">Cualquier intento de salir de esta pestaña o hacer clic fuera del reproductor enviará una alerta inmediata al profesor. El incumplimiento resultará en una nota de 0.</p>
                                 </div>
-                                <form onSubmit={(e) => { e.preventDefault(); if(studentInfo.firstName) setView('video'); }} className="bg-slate-900 p-8 rounded-3xl border border-white/5 space-y-4">
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <input required placeholder="Nombre" className="bg-black p-3 rounded-xl outline-none border border-white/10 focus:border-red-500" value={studentInfo.firstName} onChange={e => setStudentInfo({...studentInfo, firstName: e.target.value})} />
-                                        <input required placeholder="Apellido" className="bg-black p-3 rounded-xl outline-none border border-white/10 focus:border-red-500" value={studentInfo.lastName} onChange={e => setStudentInfo({...studentInfo, lastName: e.target.value})} />
+                                <form onSubmit={(e) => { e.preventDefault(); setView('video'); }} className="bg-slate-900 p-8 rounded-3xl border border-white/5 space-y-4 shadow-xl">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <input required placeholder="Nombre" className="bg-black p-3 rounded-xl outline-none border border-white/10 focus:border-red-500 text-white" value={studentInfo.firstName} onChange={e => setStudentInfo({...studentInfo, firstName: e.target.value})} />
+                                        <input required placeholder="Apellido" className="bg-black p-3 rounded-xl outline-none border border-white/10 focus:border-red-500 text-white" value={studentInfo.lastName} onChange={e => setStudentInfo({...studentInfo, lastName: e.target.value})} />
                                     </div>
-                                    <select required className="w-full bg-black p-3 rounded-xl border border-white/10" value={studentInfo.period} onChange={e => setStudentInfo({...studentInfo, period: e.target.value})}>
+                                    <select required className="w-full bg-black p-3 rounded-xl border border-white/10 text-white appearance-none" value={studentInfo.period} onChange={e => setStudentInfo({...studentInfo, period: e.target.value})}>
                                         <option value="">Seleccionar Periodo</option>
                                         {[1,2,3,4,5,6].map(p => <option key={p} value={p}>Periodo {p}</option>)}
                                     </select>
-                                    <button className="w-full bg-red-600 py-4 rounded-2xl font-black uppercase text-sm tracking-widest hover:bg-red-500 active:scale-95 transition-all">Iniciar Video Protegido</button>
+                                    <button className="w-full bg-red-600 py-4 rounded-2xl font-black uppercase text-sm tracking-widest hover:bg-red-500 active:scale-95 transition-all shadow-lg shadow-red-600/20">Iniciar Video Protegido</button>
                                 </form>
                             </div>
                         )}
 
                         {view === 'video' && (
-                            <div className="space-y-4">
+                            <div className="space-y-4 animate-in zoom-in duration-300">
                                 <div className="flex justify-between items-center bg-slate-900/50 p-3 rounded-2xl border border-white/5">
-                                    <div className="flex gap-2">
-                                        {[1, 1.25, 1.5].map(r => (
-                                            <button key={r} onClick={() => changeSpeed(r)} className={`px-3 py-1 rounded-lg text-xs font-bold ${playbackRate === r ? 'bg-red-600' : 'bg-black border border-white/10'}`}>{r}x</button>
-                                        ))}
+                                    <div className="flex items-center gap-4">
+                                        <span className="text-[10px] font-black text-slate-500 uppercase">Velocidad:</span>
+                                        <div className="flex gap-2">
+                                            {[1, 1.25, 1.5].map(r => (
+                                                <button key={r} onClick={() => changeSpeed(r)} className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${playbackRate === r ? 'bg-red-600 text-white' : 'bg-black text-slate-400 hover:bg-white/5'}`}>{r}x</button>
+                                            ))}
+                                        </div>
                                     </div>
-                                    <div className="bg-red-500/20 px-3 py-1 rounded-full border border-red-500/30">
-                                        <span className="text-[10px] font-black text-red-500 uppercase">Alertas: {violations}</span>
+                                    <div className="bg-red-500/20 px-4 py-1.5 rounded-full border border-red-500/30 flex items-center gap-2">
+                                        <div className={`w-2 h-2 rounded-full ${violations > 0 ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`}></div>
+                                        <span className="text-[10px] font-black text-red-500 uppercase tracking-tighter">Alertas: {violations}</span>
                                     </div>
                                 </div>
-                                <div ref={videoContainerRef} className="relative aspect-video bg-black rounded-3xl overflow-hidden border border-white/10 shadow-2xl">
+                                <div ref={videoContainerRef} className="aspect-video bg-black rounded-3xl overflow-hidden border border-white/10 shadow-2xl relative">
                                     <div id="player"></div>
                                     {videoEnded && (
-                                        <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center p-6 text-center">
-                                            <div className="text-5xl mb-4">🏆</div>
-                                            <h2 className="text-3xl font-black mb-4">VIDEO FINALIZADO</h2>
-                                            <p className="text-slate-400 mb-6">Tu actividad ha sido guardada con éxito.</p>
-                                            <button onClick={() => window.location.reload()} className="bg-white text-black px-8 py-2 rounded-full font-bold uppercase text-xs tracking-widest">Reiniciar</button>
+                                        <div className="absolute inset-0 bg-black/95 flex flex-col items-center justify-center p-6 text-center backdrop-blur-md z-50">
+                                            <div className="text-6xl mb-6">🏁</div>
+                                            <h2 className="text-3xl font-black mb-4 uppercase tracking-tighter">Video Finalizado</h2>
+                                            <p className="text-slate-400 mb-8 max-w-xs mx-auto">Tu participación ha sido registrada. Puedes cerrar esta ventana o avisar a tu profesor.</p>
+                                            <button onClick={() => window.location.reload()} className="bg-white text-black px-10 py-3 rounded-full font-black uppercase text-xs tracking-widest hover:scale-105 transition-transform">Reiniciar Sesión</button>
                                         </div>
                                     )}
                                 </div>
@@ -248,27 +290,38 @@
                         )}
 
                         {view === 'admin' && (
-                            <div className="bg-slate-900 rounded-3xl border border-white/5 overflow-hidden shadow-2xl">
+                            <div className="bg-slate-900 rounded-3xl border border-white/5 overflow-hidden shadow-2xl animate-in slide-in-from-bottom duration-500">
+                                <div className="p-6 border-b border-white/5 flex justify-between items-center">
+                                    <h2 className="font-black text-red-500 uppercase tracking-widest italic">Registro de Actividad Estudiantil</h2>
+                                    <span className="text-[10px] text-slate-500 font-bold">{results.length} Estudiantes</span>
+                                </div>
                                 <div className="overflow-x-auto">
                                     <table className="w-full text-left">
                                         <thead className="bg-white/5 text-[10px] uppercase font-black text-slate-500">
                                             <tr>
-                                                <th className="p-4">Estudiante</th>
-                                                <th className="p-4">Periodo</th>
-                                                <th className="p-4 text-center">Alertas</th>
-                                                <th className="p-4">Estado</th>
+                                                <th className="p-5">Estudiante</th>
+                                                <th className="p-5 text-center">Periodo</th>
+                                                <th className="p-5 text-center">Alertas</th>
+                                                <th className="p-5 text-right">Estado</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-white/5">
                                             {results.length === 0 ? (
-                                                <tr><td colSpan="4" className="p-10 text-center text-slate-500 italic">No hay datos registrados aún.</td></tr>
+                                                <tr><td colSpan="4" className="p-20 text-center text-slate-500 italic">No hay datos registrados. Los estudiantes deben usar una cuenta configurada.</td></tr>
                                             ) : (
                                                 results.map(r => (
-                                                    <tr key={r.id} className="hover:bg-white/[0.02]">
-                                                        <td className="p-4 font-bold">{r.lastName}, {r.firstName}</td>
-                                                        <td className="p-4 text-sm">P{r.period}</td>
-                                                        <td className="p-4 text-center font-black text-red-500">{r.flags || 0}</td>
-                                                        <td className="p-4"><span className={`text-[9px] px-2 py-1 rounded-full font-black uppercase ${r.status === 'Finalizado' ? 'bg-green-600/20 text-green-400' : 'bg-blue-600/20 text-blue-400'}`}>{r.status}</span></td>
+                                                    <tr key={r.id} className="hover:bg-white/[0.02] transition-colors group">
+                                                        <td className="p-5">
+                                                            <div className="font-bold text-slate-200 group-hover:text-red-500 transition-colors">{r.lastName}, {r.firstName}</div>
+                                                            <div className="text-[9px] text-slate-600 font-mono">{r.uid}</div>
+                                                        </td>
+                                                        <td className="p-5 text-center"><span className="bg-black px-3 py-1 rounded-lg border border-white/10 font-bold">P{r.period}</span></td>
+                                                        <td className="p-5 text-center">
+                                                            <span className={`text-xl font-black ${r.flags > 0 ? 'text-red-500' : 'text-green-500'}`}>{r.flags || 0}</span>
+                                                        </td>
+                                                        <td className="p-5 text-right">
+                                                            <span className={`text-[9px] px-3 py-1 rounded-full font-black uppercase tracking-widest ${r.status === 'Finalizado' ? 'bg-green-600/20 text-green-400 border border-green-600/30' : 'bg-blue-600/20 text-blue-400 border border-blue-600/30'}`}>{r.status}</span>
+                                                        </td>
                                                     </tr>
                                                 ))
                                             )}
@@ -280,15 +333,19 @@
                     </main>
 
                     {showSecurityWarning && (
-                        <div className="fixed inset-0 bg-black/95 backdrop-blur-xl z-[100] flex items-center justify-center p-6">
-                            <div className="bg-red-600 p-10 rounded-[3rem] text-center shadow-2xl max-w-sm border-2 border-white/20">
-                                <div className="text-5xl mb-4">🚫</div>
-                                <h2 className="text-3xl font-black mb-4 uppercase italic">ACTIVIDAD SOSPECHOSA</h2>
-                                <p className="font-bold mb-8 text-sm leading-relaxed text-white">Has salido de la ventana del examen. El profesor ha recibido una alerta de posible fraude.</p>
-                                <button onClick={() => setShowSecurityWarning(false)} className="w-full bg-white text-red-600 py-3 rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg">Entendido, volver al video</button>
+                        <div className="fixed inset-0 bg-black/98 backdrop-blur-2xl z-[100] flex items-center justify-center p-6 animate-in fade-in duration-300">
+                            <div className="bg-red-600 p-12 rounded-[4rem] text-center shadow-[0_0_100px_rgba(239,68,68,0.4)] max-w-sm border-2 border-white/20">
+                                <div className="text-7xl mb-6">🚫</div>
+                                <h2 className="text-4xl font-black mb-4 uppercase italic tracking-tighter">VIOLACIÓN DE SEGURIDAD</h2>
+                                <p className="font-bold mb-10 text-sm leading-relaxed text-white uppercase tracking-tight">Has salido de la ventana activa o intentado copiar contenido. El profesor ha sido notificado automáticamente.</p>
+                                <button onClick={() => setShowSecurityWarning(false)} className="w-full bg-white text-red-600 py-4 rounded-3xl font-black uppercase text-xs tracking-widest shadow-xl hover:scale-105 transition-transform active:scale-95">Reanudar Video Protegido</button>
                             </div>
                         </div>
                     )}
+
+                    <footer className="p-6 text-center">
+                        <p className="text-[10px] text-slate-700 font-black uppercase tracking-[0.6em]">Secure Watch Protocol v3.0 • Hardware Acceleration Active</p>
+                    </footer>
                 </div>
             );
         }
