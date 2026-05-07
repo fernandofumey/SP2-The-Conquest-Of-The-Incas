@@ -1,353 +1,300 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, doc, setDoc } from 'firebase/firestore';
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Examen Seguro - La Conquista de los Incas</title>
+    
+    <!-- React y Babel para procesar JSX en el navegador -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS para los estilos -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Firebase Compat (Versión estable para navegador) -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
-// --- CONFIGURACIÓN DE FIREBASE ---
-const firebaseConfig = JSON.parse(__firebase_config);
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'inca-secure-video';
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        body { font-family: 'Inter', sans-serif; overflow-x: hidden; background-color: #020617; }
+        .no-select { user-select: none; -webkit-user-select: none; }
+        iframe { width: 100% !important; height: 100% !important; }
+    </style>
+</head>
+<body class="text-white no-select">
+    <div id="root"></div>
 
-export default function App() {
-  const [user, setUser] = useState(null);
-  const [studentInfo, setStudentInfo] = useState({ firstName: '', lastName: '', period: '' });
-  const [view, setView] = useState('login'); // 'login', 'video', 'admin'
-  const [playbackRate, setPlaybackRate] = useState(1);
-  const [violations, setViolations] = useState(0);
-  const [showSecurityWarning, setShowSecurityWarning] = useState(false);
-  const [results, setResults] = useState([]);
-  const [videoEnded, setVideoEnded] = useState(false);
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
 
-  const playerRef = useRef(null);
-  const videoContainerRef = useRef(null);
-  const lastViolationTime = useRef(0);
-
-  // --- INICIALIZACIÓN DE AUTENTICACIÓN (REGLA 3) ---
-  useEffect(() => {
-    const initAuth = async () => {
-      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-        await signInWithCustomToken(auth, __initial_auth_token);
-      } else {
-        await signInAnonymously(auth);
-      }
-    };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return () => unsubscribe();
-  }, []);
-
-  // --- MONITOREO DE SEGURIDAD (REGLAS 2 Y 4) ---
-  useEffect(() => {
-    if (view !== 'video' || videoEnded) return;
-
-    const triggerAlert = (reason) => {
-      const now = Date.now();
-      if (now - lastViolationTime.current < 2000) return;
-      lastViolationTime.current = now;
-
-      setViolations(prev => {
-        const newFlags = prev + 1;
-        // Actualizar base de datos inmediatamente (REGLA 1: Ruta con segmentos pares para doc)
-        if (user) {
-          const studentDoc = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', user.uid);
-          setDoc(studentDoc, {
-            ...studentInfo,
-            uid: user.uid,
-            flags: newFlags,
-            lastAlert: reason,
-            timestamp: new Date().toISOString(),
-            status: 'Activo'
-          }, { merge: true });
+        // --- CONFIGURACIÓN DE FIREBASE ---
+        const firebaseConfig = window.__firebase_config ? JSON.parse(window.__firebase_config) : {
+            apiKey: "",
+            authDomain: "tu-app.firebaseapp.com",
+            projectId: "tu-app",
+            storageBucket: "tu-app.appspot.com",
+            messagingSenderId: "000000000000",
+            appId: "0:000000000000:web:000000000000"
+        };
+        
+        // Inicializar Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
         }
-        return newFlags;
-      });
-      
-      setShowSecurityWarning(true);
-    };
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        const appId = window.__app_id || 'inca-secure-video';
 
-    const handleVisibility = () => {
-      if (document.visibilityState === 'hidden') triggerAlert('Cambio de Pestaña');
-    };
+        function App() {
+            const [user, setUser] = useState(null);
+            const [studentInfo, setStudentInfo] = useState({ firstName: '', lastName: '', period: '' });
+            const [view, setView] = useState('login'); 
+            const [playbackRate, setPlaybackRate] = useState(1);
+            const [violations, setViolations] = useState(0);
+            const [showSecurityWarning, setShowSecurityWarning] = useState(false);
+            const [results, setResults] = useState([]);
+            const [videoEnded, setVideoEnded] = useState(false);
 
-    const handleBlur = () => triggerAlert('Pérdida de Foco de Ventana');
+            const playerRef = useRef(null);
+            const videoContainerRef = useRef(null);
+            const lastViolationTime = useRef(0);
 
-    const handleClickOutside = (e) => {
-      if (videoContainerRef.current && !videoContainerRef.current.contains(e.target)) {
-        triggerAlert('Clic fuera del reproductor');
-      }
-    };
+            // --- AUTENTICACIÓN (REGLA 3) ---
+            useEffect(() => {
+                const initAuth = async () => {
+                    const token = window.__initial_auth_token;
+                    if (token) {
+                        await auth.signInWithCustomToken(token);
+                    } else {
+                        await auth.signInAnonymously();
+                    }
+                };
+                initAuth();
+                const unsubscribe = auth.onAuthStateChanged(u => setUser(u));
+                return () => unsubscribe();
+            }, []);
 
-    // Bloquear copiar/pegar y menú contextual
-    const preventCopyPaste = (e) => {
-      e.preventDefault();
-      triggerAlert('Intento de Copiar/Pegar');
-    };
+            // --- MONITOREO DE SEGURIDAD ---
+            useEffect(() => {
+                if (view !== 'video' || videoEnded) return;
 
-    document.addEventListener('visibilitychange', handleVisibility);
-    window.addEventListener('blur', handleBlur);
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('copy', preventCopyPaste);
-    document.addEventListener('paste', preventCopyPaste);
-    document.addEventListener('contextmenu', (e) => e.preventDefault());
+                const triggerAlert = (reason) => {
+                    const now = Date.now();
+                    if (now - lastViolationTime.current < 2000) return;
+                    lastViolationTime.current = now;
 
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibility);
-      window.removeEventListener('blur', handleBlur);
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('copy', preventCopyPaste);
-      document.removeEventListener('paste', preventCopyPaste);
-    };
-  }, [view, videoEnded, user, studentInfo]);
+                    setViolations(prev => {
+                        const newFlags = prev + 1;
+                        if (user) {
+                            // REGLA 1: /artifacts/{appId}/public/data/sessions/{uid} (Ruta par corregida)
+                            db.collection('artifacts').doc(appId)
+                              .collection('public').doc('data')
+                              .collection('sessions').doc(user.uid)
+                              .set({
+                                ...studentInfo,
+                                uid: user.uid,
+                                flags: newFlags,
+                                lastAlert: reason,
+                                timestamp: new Date().toISOString(),
+                                status: 'Activo'
+                              }, { merge: true });
+                        }
+                        return newFlags;
+                    });
+                    setShowSecurityWarning(true);
+                };
 
-  // --- API DE YOUTUBE ---
-  useEffect(() => {
-    if (view === 'video' && !window.YT) {
-      const tag = document.createElement('script');
-      tag.src = "https://www.youtube.com/iframe_api";
-      const firstScriptTag = document.getElementsByTagName('script')[0];
-      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-      window.onYouTubeIframeAPIReady = initPlayer;
-    } else if (view === 'video' && window.YT) {
-      initPlayer();
-    }
-  }, [view]);
+                const handleVisibility = () => { if (document.hidden) triggerAlert('Cambio de Pestaña'); };
+                const handleBlur = () => triggerAlert('Foco Perdido');
+                
+                const handleClickOutside = (e) => {
+                    if (videoContainerRef.current && !videoContainerRef.current.contains(e.target)) {
+                        triggerAlert('Clic fuera del video');
+                    }
+                };
 
-  const initPlayer = () => {
-    playerRef.current = new window.YT.Player('player', {
-      height: '100%',
-      width: '100%',
-      videoId: '9iImmVKrWzI',
-      playerVars: {
-        autoplay: 1,
-        modestbranding: 1,
-        rel: 0,
-        controls: 1,
-      },
-      events: {
-        onStateChange: (event) => {
-          if (event.data === window.YT.PlayerState.ENDED) {
-            setVideoEnded(true);
-            finalizeSession();
-          }
-        }
-      }
-    });
-  };
+                document.addEventListener('visibilitychange', handleVisibility);
+                window.addEventListener('blur', handleBlur);
+                document.addEventListener('mousedown', handleClickOutside);
+                document.addEventListener('copy', (e) => e.preventDefault());
+                document.addEventListener('paste', (e) => e.preventDefault());
+                document.addEventListener('contextmenu', (e) => e.preventDefault());
 
-  const finalizeSession = async () => {
-    if (user) {
-      const studentDoc = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', user.uid);
-      await setDoc(studentDoc, {
-        status: 'Finalizado',
-        completedAt: new Date().toISOString()
-      }, { merge: true });
-    }
-  };
+                return () => {
+                    document.removeEventListener('visibilitychange', handleVisibility);
+                    window.removeEventListener('blur', handleBlur);
+                    document.removeEventListener('mousedown', handleClickOutside);
+                };
+            }, [view, videoEnded, user, studentInfo]);
 
-  const handleStart = (e) => {
-    e.preventDefault();
-    if (studentInfo.firstName && studentInfo.lastName && studentInfo.period) {
-      setView('video');
-    }
-  };
+            // --- YOUTUBE API ---
+            useEffect(() => {
+                if (view === 'video' && !window.YT) {
+                    const tag = document.createElement('script');
+                    tag.src = "https://www.youtube.com/iframe_api";
+                    document.body.appendChild(tag);
+                    window.onYouTubeIframeAPIReady = loadPlayer;
+                } else if (view === 'video' && window.YT) {
+                    loadPlayer();
+                }
+            }, [view]);
 
-  const changeSpeed = (rate) => {
-    setPlaybackRate(rate);
-    if (playerRef.current) playerRef.current.setPlaybackRate(rate);
-  };
+            const loadPlayer = () => {
+                playerRef.current = new YT.Player('player', {
+                    height: '100%',
+                    width: '100%',
+                    videoId: '9iImmVKrWzI',
+                    playerVars: { autoplay: 1, modestbranding: 1, rel: 0, controls: 1 },
+                    events: {
+                        onStateChange: (e) => { 
+                            if (e.data === YT.PlayerState.ENDED) { 
+                                setVideoEnded(true); 
+                                finalize(); 
+                            } 
+                        }
+                    }
+                });
+            };
 
-  // --- DATOS PARA VISTA DE ADMINISTRADOR (REGLA 1 Y 2) ---
-  useEffect(() => {
-    if (view === 'admin' && user) {
-      // Usar ruta de colección (segmentos impares)
-      const q = collection(db, 'artifacts', appId, 'public', 'data', 'sessions');
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        setResults(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      }, (error) => console.error("Error al obtener datos:", error));
-      return () => unsubscribe();
-    }
-  }, [view, user]);
+            const finalize = () => {
+                if (user) {
+                    db.collection('artifacts').doc(appId)
+                      .collection('public').doc('data')
+                      .collection('sessions').doc(user.uid)
+                      .update({ status: 'Finalizado', completedAt: new Date().toISOString() });
+                }
+            };
 
-  return (
-    <div className="min-h-screen bg-slate-950 text-white font-sans selection:bg-red-500">
-      {/* Navegación */}
-      <nav className="p-4 border-b border-white/10 flex justify-between items-center bg-black/40 backdrop-blur-md sticky top-0 z-50">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-red-600 rounded-xl flex items-center justify-center font-black shadow-lg shadow-red-600/20 italic">V</div>
-          <div>
-            <h1 className="font-bold text-lg leading-tight uppercase tracking-tighter text-red-500">Examen Seguro</h1>
-            <p className="text-[10px] text-slate-500 uppercase font-black">BBC: La Conquista de los Incas</p>
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => setView('login')} className={`px-4 py-2 rounded-full text-xs font-bold transition ${view !== 'admin' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-white/5'}`}>Estudiante</button>
-          <button onClick={() => setView('admin')} className={`px-4 py-2 rounded-full text-xs font-bold transition ${view === 'admin' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-white/5'}`}>Registro</button>
-        </div>
-      </nav>
+            const changeSpeed = (rate) => {
+                setPlaybackRate(rate);
+                if (playerRef.current) playerRef.current.setPlaybackRate(rate);
+            };
 
-      <main className="max-w-6xl mx-auto p-4 md:p-8">
-        {/* VISTA DE INICIO / ADVERTENCIA */}
-        {view === 'login' && (
-          <div className="max-w-xl mx-auto mt-4 space-y-6">
-            <div className="bg-red-950/30 border-2 border-red-500/50 p-6 rounded-3xl text-center">
-              <div className="text-4xl mb-4">⚠️</div>
-              <h2 className="text-2xl font-black uppercase text-red-500 mb-2 tracking-tighter">Advertencia de Integridad</h2>
-              <p className="text-slate-300 text-sm font-medium leading-relaxed">
-                Abrir otras pestañas, cambiar de ventana o hacer clic fuera del reproductor activará una 
-                <span className="text-red-400 font-bold"> Alerta de Fraude</span>. 
-                Las violaciones se registran en tiempo real. Múltiples alertas pueden resultar en una calificación de <span className="text-red-400 font-bold underline">CERO (0)</span>.
-              </p>
-            </div>
+            // --- REGISTRO PARA EL PROFESOR ---
+            useEffect(() => {
+                if (view === 'admin' && user) {
+                    const q = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sessions');
+                    return q.onSnapshot(snap => {
+                        setResults(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                    });
+                }
+            }, [view, user]);
 
-            <form onSubmit={handleStart} className="bg-slate-900 p-8 rounded-3xl border border-white/5 shadow-2xl space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[10px] font-black text-slate-500 uppercase ml-2 mb-1 block">Nombre</label>
-                  <input required className="w-full bg-black border border-white/10 p-3 rounded-xl outline-none focus:border-red-500 transition-all" value={studentInfo.firstName} onChange={e => setStudentInfo({...studentInfo, firstName: e.target.value})} />
-                </div>
-                <div>
-                  <label className="text-[10px] font-black text-slate-500 uppercase ml-2 mb-1 block">Apellido</label>
-                  <input required className="w-full bg-black border border-white/10 p-3 rounded-xl outline-none focus:border-red-500 transition-all" value={studentInfo.lastName} onChange={e => setStudentInfo({...studentInfo, lastName: e.target.value})} />
-                </div>
-              </div>
-              <div>
-                <label className="text-[10px] font-black text-slate-500 uppercase ml-2 mb-1 block">Periodo</label>
-                <select required className="w-full bg-black border border-white/10 p-3 rounded-xl outline-none focus:border-red-500 transition-all" value={studentInfo.period} onChange={e => setStudentInfo({...studentInfo, period: e.target.value})}>
-                  <option value="">Seleccionar Periodo</option>
-                  {[1,2,3,4,5,6].map(p => <option key={p} value={p}>Periodo {p}</option>)}
-                </select>
-              </div>
-              <button type="submit" className="w-full bg-red-600 hover:bg-red-500 py-4 rounded-2xl font-black uppercase text-sm tracking-widest transition-all shadow-xl shadow-red-600/20 active:scale-95">
-                Bloquear Navegador e Iniciar
-              </button>
-            </form>
-          </div>
-        )}
+            return (
+                <div className="min-h-screen flex flex-col bg-slate-950 text-white">
+                    <nav className="p-4 border-b border-white/10 flex justify-between items-center bg-black/60 backdrop-blur-md sticky top-0 z-50">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-red-600 rounded-xl flex items-center justify-center font-black italic shadow-lg shadow-red-600/20">V</div>
+                            <div>
+                                <h1 className="font-bold text-lg leading-tight text-red-500 uppercase">Examen Seguro</h1>
+                                <p className="text-[10px] text-slate-500 uppercase font-black">BBC: La Conquista de los Incas</p>
+                            </div>
+                        </div>
+                        <div className="flex gap-2">
+                            <button onClick={() => setView('login')} className={`px-4 py-2 rounded-full text-xs font-bold transition ${view !== 'admin' ? 'bg-red-600' : 'hover:bg-white/10'}`}>Alumno</button>
+                            <button onClick={() => setView('admin')} className={`px-4 py-2 rounded-full text-xs font-bold transition ${view === 'admin' ? 'bg-red-600' : 'hover:bg-white/10'}`}>Profesor</button>
+                        </div>
+                    </nav>
 
-        {/* VISTA DE VIDEO */}
-        {view === 'video' && (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center px-4">
-              <div className="flex gap-4 items-center">
-                <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Velocidad:</span>
-                {[1, 1.25, 1.5].map(rate => (
-                  <button 
-                    key={rate} 
-                    onClick={() => changeSpeed(rate)}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold border transition-all ${playbackRate === rate ? 'bg-red-600 border-red-600' : 'border-white/10 hover:border-white/30'}`}
-                  >
-                    {rate}x
-                  </button>
-                ))}
-              </div>
-              <div className="bg-red-500/10 border border-red-500/20 px-4 py-1.5 rounded-full flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${violations > 0 ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`} />
-                <span className="text-[10px] font-black uppercase tracking-tighter">Alertas de Seguridad: {violations}</span>
-              </div>
-            </div>
+                    <main className="flex-1 p-4 md:p-8 max-w-6xl mx-auto w-full flex flex-col justify-center">
+                        {view === 'login' && (
+                            <div className="max-w-xl mx-auto space-y-6">
+                                <div className="bg-red-950/30 border-2 border-red-500/50 p-6 rounded-3xl text-center">
+                                    <h2 className="text-2xl font-black text-red-500 uppercase mb-2">Advertencia de Fraude</h2>
+                                    <p className="text-slate-300 text-sm">Cualquier intento de salir de esta pestaña o hacer clic fuera del reproductor notificará al profesor inmediatamente. No usar IA ni otras ventanas.</p>
+                                </div>
+                                <form onSubmit={(e) => { e.preventDefault(); if(studentInfo.firstName) setView('video'); }} className="bg-slate-900 p-8 rounded-3xl border border-white/5 space-y-4">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <input required placeholder="Nombre" className="bg-black p-3 rounded-xl outline-none border border-white/10 focus:border-red-500" value={studentInfo.firstName} onChange={e => setStudentInfo({...studentInfo, firstName: e.target.value})} />
+                                        <input required placeholder="Apellido" className="bg-black p-3 rounded-xl outline-none border border-white/10 focus:border-red-500" value={studentInfo.lastName} onChange={e => setStudentInfo({...studentInfo, lastName: e.target.value})} />
+                                    </div>
+                                    <select required className="w-full bg-black p-3 rounded-xl border border-white/10" value={studentInfo.period} onChange={e => setStudentInfo({...studentInfo, period: e.target.value})}>
+                                        <option value="">Seleccionar Periodo</option>
+                                        {[1,2,3,4,5,6].map(p => <option key={p} value={p}>Periodo {p}</option>)}
+                                    </select>
+                                    <button className="w-full bg-red-600 py-4 rounded-2xl font-black uppercase text-sm tracking-widest hover:bg-red-500 active:scale-95 transition-all">Iniciar Video Protegido</button>
+                                </form>
+                            </div>
+                        )}
 
-            <div 
-              ref={videoContainerRef}
-              className="relative aspect-video bg-black rounded-[2.5rem] overflow-hidden shadow-2xl border border-white/5 group"
-            >
-              <div id="player" className="w-full h-full" />
-              
-              {videoEnded && (
-                <div className="absolute inset-0 bg-black/90 flex items-center justify-center p-8 text-center z-[60]">
-                  <div className="max-w-md">
-                    <div className="text-6xl mb-6">🏁</div>
-                    <h2 className="text-3xl font-black uppercase mb-4">Video Finalizado</h2>
-                    <p className="text-slate-400 mb-8 font-medium">Tu sesión ha sido registrada. Ahora puedes continuar con tu hoja de trabajo impresa.</p>
-                    <button onClick={() => window.location.reload()} className="bg-white text-black px-8 py-3 rounded-full font-black uppercase text-xs tracking-widest">Reiniciar Sesión</button>
-                  </div>
-                </div>
-              )}
-            </div>
+                        {view === 'video' && (
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center bg-slate-900/50 p-3 rounded-2xl border border-white/5">
+                                    <div className="flex gap-2">
+                                        {[1, 1.25, 1.5].map(r => (
+                                            <button key={r} onClick={() => changeSpeed(r)} className={`px-3 py-1 rounded-lg text-xs font-bold ${playbackRate === r ? 'bg-red-600' : 'bg-black border border-white/10'}`}>{r}x</button>
+                                        ))}
+                                    </div>
+                                    <div className="bg-red-500/20 px-3 py-1 rounded-full border border-red-500/30">
+                                        <span className="text-[10px] font-black text-red-500 uppercase">Alertas: {violations}</span>
+                                    </div>
+                                </div>
+                                <div ref={videoContainerRef} className="relative aspect-video bg-black rounded-3xl overflow-hidden border border-white/10 shadow-2xl">
+                                    <div id="player"></div>
+                                    {videoEnded && (
+                                        <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center p-6 text-center">
+                                            <div className="text-5xl mb-4">🏆</div>
+                                            <h2 className="text-3xl font-black mb-4">VIDEO FINALIZADO</h2>
+                                            <p className="text-slate-400 mb-6">Tu actividad ha sido guardada con éxito.</p>
+                                            <button onClick={() => window.location.reload()} className="bg-white text-black px-8 py-2 rounded-full font-bold uppercase text-xs tracking-widest">Reiniciar</button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
 
-            <div className="text-center p-4">
-              <p className="text-[10px] text-slate-600 font-black uppercase tracking-[0.4em]">NO HAGAS CLIC FUERA DEL VIDEO • NAVEGADOR MONITOREADO</p>
-            </div>
-          </div>
-        )}
+                        {view === 'admin' && (
+                            <div className="bg-slate-900 rounded-3xl border border-white/5 overflow-hidden shadow-2xl">
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left">
+                                        <thead className="bg-white/5 text-[10px] uppercase font-black text-slate-500">
+                                            <tr>
+                                                <th className="p-4">Estudiante</th>
+                                                <th className="p-4">Periodo</th>
+                                                <th className="p-4 text-center">Alertas</th>
+                                                <th className="p-4">Estado</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-white/5">
+                                            {results.length === 0 ? (
+                                                <tr><td colSpan="4" className="p-10 text-center text-slate-500 italic">No hay datos registrados aún.</td></tr>
+                                            ) : (
+                                                results.map(r => (
+                                                    <tr key={r.id} className="hover:bg-white/[0.02]">
+                                                        <td className="p-4 font-bold">{r.lastName}, {r.firstName}</td>
+                                                        <td className="p-4 text-sm">P{r.period}</td>
+                                                        <td className="p-4 text-center font-black text-red-500">{r.flags || 0}</td>
+                                                        <td className="p-4"><span className={`text-[9px] px-2 py-1 rounded-full font-black uppercase ${r.status === 'Finalizado' ? 'bg-green-600/20 text-green-400' : 'bg-blue-600/20 text-blue-400'}`}>{r.status}</span></td>
+                                                    </tr>
+                                                ))
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+                    </main>
 
-        {/* VISTA DE ADMINISTRADOR */}
-        {view === 'admin' && (
-          <div className="space-y-6">
-            <div className="flex justify-between items-end">
-              <div>
-                <h2 className="text-3xl font-black uppercase tracking-tighter italic">Registro del Profesor</h2>
-                <p className="text-slate-500 text-sm">Monitoreo en tiempo real para {appId}</p>
-              </div>
-            </div>
-
-            <div className="bg-slate-900 rounded-[2rem] border border-white/5 overflow-hidden shadow-2xl">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead className="bg-white/5 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                    <tr>
-                      <th className="p-5">Estudiante</th>
-                      <th className="p-5">Periodo</th>
-                      <th className="p-5 text-center">Alertas</th>
-                      <th className="p-5">Última Actividad</th>
-                      <th className="p-5">Estado</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5">
-                    {results.length === 0 ? (
-                      <tr><td colSpan="5" className="p-20 text-center text-slate-500 italic">No hay datos de estudiantes aún...</td></tr>
-                    ) : (
-                      results.map(r => (
-                        <tr key={r.id} className="hover:bg-white/[0.02] transition-colors">
-                          <td className="p-5">
-                            <div className="font-bold text-slate-200">{r.lastName}, {r.firstName}</div>
-                            <div className="text-[10px] text-slate-600 font-mono uppercase">{r.uid}</div>
-                          </td>
-                          <td className="p-5 text-sm font-bold">P{r.period}</td>
-                          <td className="p-5 text-center">
-                            <span className={`text-xl font-black ${r.flags > 0 ? 'text-red-500' : 'text-green-500'}`}>
-                              {r.flags || 0}
-                            </span>
-                          </td>
-                          <td className="p-5 text-xs text-slate-500">
-                            {r.lastAlert ? <span className="text-red-400/80 font-bold uppercase tracking-tighter">[{r.lastAlert}]</span> : 'Sesión Limpia'}
-                            <div className="mt-1">{new Date(r.timestamp).toLocaleTimeString()}</div>
-                          </td>
-                          <td className="p-5">
-                            <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${r.status === 'Finalizado' ? 'bg-green-500/20 text-green-400' : 'bg-blue-500/20 text-blue-400'}`}>
-                              {r.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))
+                    {showSecurityWarning && (
+                        <div className="fixed inset-0 bg-black/95 backdrop-blur-xl z-[100] flex items-center justify-center p-6">
+                            <div className="bg-red-600 p-10 rounded-[3rem] text-center shadow-2xl max-w-sm border-2 border-white/20">
+                                <div className="text-5xl mb-4">🚫</div>
+                                <h2 className="text-3xl font-black mb-4 uppercase italic">ACTIVIDAD SOSPECHOSA</h2>
+                                <p className="font-bold mb-8 text-sm leading-relaxed text-white">Has salido de la ventana del examen. El profesor ha recibido una alerta de posible fraude.</p>
+                                <button onClick={() => setShowSecurityWarning(false)} className="w-full bg-white text-red-600 py-3 rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg">Entendido, volver al video</button>
+                            </div>
+                        </div>
                     )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
+                </div>
+            );
+        }
 
-      {/* MODAL DE SEGURIDAD */}
-      {showSecurityWarning && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 animate-in fade-in duration-300">
-          <div className="max-w-md w-full bg-red-600 p-8 rounded-[3rem] text-center shadow-[0_0_50px_rgba(220,38,38,0.5)]">
-            <div className="text-6xl mb-6">🚫</div>
-            <h2 className="text-3xl font-black uppercase mb-4 tracking-tighter leading-none text-white">Violación de Seguridad</h2>
-            <p className="text-white/90 font-bold mb-8 text-sm leading-relaxed">
-              Has salido de la pantalla del video o has perdido el foco. Tu profesor ha sido notificado de esta actividad sospechosa.
-            </p>
-            <button 
-              onClick={() => setShowSecurityWarning(false)}
-              className="w-full bg-white text-red-600 py-4 rounded-2xl font-black uppercase text-xs tracking-widest hover:scale-105 transition-transform"
-            >
-              Reanudar Video
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
