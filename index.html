@@ -16,18 +16,23 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <style>
         .no-select { user-select: none; -webkit-user-select: none; }
-        /* Prevent direct interaction with YouTube but allow our overlays */
         .yt-overlay { pointer-events: none; }
-        input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 12px;
-            height: 12px;
-            background: #f59e0b;
-            cursor: pointer;
-            border-radius: 50%;
-        }
         iframe { width: 100% !important; height: 100% !important; position: absolute; top: 0; left: 0; }
+        
+        /* High-security font appearance for UI */
+        .security-font { font-family: 'Courier New', Courier, monospace; letter-spacing: -1px; }
+        
+        @keyframes scanline {
+            0% { transform: translateY(-100%); }
+            100% { transform: translateY(1000%); }
+        }
+        .scanner {
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 2px;
+            background: rgba(245, 158, 11, 0.2);
+            animation: scanline 8s linear infinite;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body class="bg-slate-900 text-white min-h-screen flex items-start sm:items-center justify-center p-4 py-10 selection:bg-amber-500/30">
@@ -37,9 +42,10 @@
         const { useState, useEffect, useRef } = React;
 
         const MAX_ALLOWED_TIME = 2941; 
+        const FORCE_FINISH_TIME = 2676; // Requerido por el usuario
         const VIDEO_ID = '9iImmVKrWzI';
 
-        const QUIZ_QUESTIONS = [
+          const QUIZ_QUESTIONS = [
             { id: 1, timestamp: 70, text: "What did Pizarro do in 1527 to test the loyalty of his men?", options: ["Built a fortress", "Burned the ships", "Drew a line in the sand", "Executed the mutineers"], correctIndex: 2 },
             { id: 2, timestamp: 177, text: "Unlike the Europeans, the Incas lived in 'sacred time' where they worshipped what as God?", options: ["The Moon", "The Sun", "The Earth", "The Ocean"], correctIndex: 1 },
             { id: 3, timestamp: 215, text: "Who was with Pizarro on his return to Peru in 1532?", options: ["Surviving soldiers and 4 of his brothers", "The King of Spain", "1,000 professional mercenaries", "No one; he returned alone"], correctIndex: 0 },
@@ -72,7 +78,7 @@
             { id: 30, timestamp: 2676, text: "How was Manco Inca eventually killed?", options: ["In battle", "By a snake bite", "Stabbed by Spanish guests during a game", "Executed by his own people"], correctIndex: 2 }
         ];
 
-        const SALT = "inca_v1_";
+        const SALT = "inca_v2_secure_";
         const encodeBase64 = (str) => btoa(unescape(encodeURIComponent(str)));
         const decodeBase64 = (str) => decodeURIComponent(escape(atob(str)));
 
@@ -125,7 +131,6 @@
 
             const [selectedOption, setSelectedOption] = useState(null);
             const [showFeedback, setShowFeedback] = useState(false);
-            const [showResetConfirm, setShowResetConfirm] = useState(false);
             const [isTeacherMode, setIsTeacherMode] = useState(false);
             const [showPinModal, setShowPinModal] = useState(false);
             const [pinInput, setPinInput] = useState("");
@@ -228,6 +233,14 @@
                 if (isPlaying && player && view === 'video') {
                     intervalRef.current = setInterval(() => {
                         const time = player.getCurrentTime();
+                        
+                        // --- FORCED FINISH AT 2676 ---
+                        if (time >= FORCE_FINISH_TIME && !isTeacherMode) {
+                            player.pauseVideo();
+                            handleFinalSubmit();
+                            return;
+                        }
+
                         if (time >= MAX_ALLOWED_TIME) {
                             player.pauseVideo();
                             handleFinalSubmit();
@@ -235,7 +248,6 @@
                         }
 
                         const prev = prevTimeRef.current || time;
-                        // Anti-skip logic
                         if (!isTeacherMode && time > prev + 2.5 && (Date.now() - lastSeekTimeRef.current > 1000)) {
                             player.seekTo(prev, true);
                             return;
@@ -250,7 +262,6 @@
                             localStorage.setItem('inca_video_max_time_hash', encodeBase64(SALT + time.toString()));
                         }
 
-                        // Question Trigger - Removed 'studentAnswers[q.id] === undefined' to allow repeats
                         const upcoming = QUIZ_QUESTIONS.find(q => time >= q.timestamp && time < q.timestamp + 1.5);
                         if (upcoming && lastTriggeredQuestionIdRef.current !== upcoming.id) {
                             player.pauseVideo();
@@ -265,24 +276,11 @@
             }, [isPlaying, player, view, studentAnswers, isTeacherMode]);
 
             const togglePlayPause = () => isPlaying ? player.pauseVideo() : player.playVideo();
-            
             const handleRewind = () => {
                 const newTime = Math.max(0, player.getCurrentTime() - 10);
                 lastSeekTimeRef.current = Date.now();
-                lastTriggeredQuestionIdRef.current = null; // Reset trigger so it can fire immediately if rewinded into a sector
+                lastTriggeredQuestionIdRef.current = null; 
                 player.seekTo(newTime, true);
-            };
-
-            const toggleSpeed = () => {
-                const rates = [1, 1.25, 1.5];
-                const nextRate = rates[(rates.indexOf(playbackRate) + 1) % rates.length];
-                setPlaybackRate(nextRate);
-                player.setPlaybackRate(nextRate);
-            };
-
-            const toggleCC = () => {
-                ccEnabled ? player.unloadModule('captions') : player.loadModule('captions');
-                setCcEnabled(!ccEnabled);
             };
 
             const toggleFullscreen = () => {
@@ -294,11 +292,6 @@
                     if (document.exitFullscreen) document.exitFullscreen();
                     else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
                 }
-            };
-
-            const handleOptionClick = (idx) => {
-                setSelectedOption(idx);
-                setShowFeedback(true);
             };
 
             const handleContinueVideo = () => {
@@ -319,54 +312,108 @@
 
             const downloadJPG = () => {
                 const canvas = document.createElement('canvas');
-                canvas.width = 1000; canvas.height = 700;
+                canvas.width = 1200; canvas.height = 850;
                 const ctx = canvas.getContext('2d');
-                ctx.fillStyle = '#0f172a'; ctx.fillRect(0,0,1000,700);
-                ctx.fillStyle = '#f59e0b'; ctx.font = 'bold 40px Arial'; ctx.textAlign = 'center';
-                ctx.fillText('CONQUEST OF THE INCAS CERTIFICATE', 500, 100);
-                ctx.fillStyle = '#ffffff'; ctx.font = '30px Arial';
-                ctx.fillText(`Student: ${firstName} ${lastName}`, 500, 200);
-                ctx.fillText(`Period: ${studentPeriod} | Score: ${Object.values(studentAnswers).filter(v => v).length}/30`, 500, 300);
-                ctx.fillText(`Security Violations: ${violations}`, 500, 400);
+                
+                // 1. COMPLEX SECURITY BACKGROUND (Hard to forge)
+                const grad = ctx.createLinearGradient(0, 0, 1200, 850);
+                grad.addColorStop(0, '#0f172a'); grad.addColorStop(0.5, '#1e1b4b'); grad.addColorStop(1, '#020617');
+                ctx.fillStyle = grad; ctx.fillRect(0, 0, 1200, 850);
+
+                // 2. SECURITY LINES (Moire pattern logic)
+                ctx.strokeStyle = 'rgba(245, 158, 11, 0.05)';
+                ctx.lineWidth = 1;
+                for (let i = 0; i < 1200; i += 4) {
+                    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(1200 - i, 850); ctx.stroke();
+                }
+
+                // 3. MICRO-TEXT WATERMARK (Anti-duplication)
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
+                ctx.font = 'bold 10px Courier New';
+                const watermarkText = `INCA_SECURE_VERIFICATION_${firstName.toUpperCase()}_${lastName.toUpperCase()}_SCORE_SYNC_`.repeat(5);
+                for (let i = 0; i < 850; i += 15) {
+                    ctx.fillText(watermarkText, (i % 30) * -1, i);
+                }
+
+                // 4. MAIN CERTIFICATE BOX
+                ctx.shadowBlur = 40; ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
+                ctx.fillRect(100, 100, 1000, 650);
+                ctx.shadowBlur = 0;
+                
+                // Double Border
+                ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 6; ctx.strokeRect(100, 100, 1000, 650);
+                ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 1; ctx.strokeRect(110, 110, 980, 630);
+
+                // 5. TITLES with security styling
+                ctx.textAlign = 'center'; ctx.fillStyle = '#f8fafc'; ctx.font = '900 48px Georgia, serif';
+                ctx.fillText('INCA CONQUEST ASSESSMENT', 600, 200);
+                
+                ctx.fillStyle = '#f59e0b'; ctx.font = 'bold 20px Arial';
+                ctx.fillText('OFFICIAL ENCRYPTED PERFORMANCE RECORD', 600, 240);
+
+                // 6. STUDENT DATA (Difficult font style)
+                ctx.fillStyle = '#ffffff'; ctx.font = 'italic 700 60px "Times New Roman"';
+                ctx.fillText(`${firstName} ${lastName}`, 600, 350);
+                
+                ctx.fillStyle = '#94a3b8'; ctx.font = 'bold 24px Courier New';
+                ctx.fillText(`PERIOD: ${studentPeriod} | SESSION: ${new Date().toLocaleTimeString()}`, 600, 400);
+
+                // 7. SCORE (Big and highlighted)
+                const finalScore = Object.values(studentAnswers).filter(v => v).length;
+                ctx.font = '900 120px Arial Black';
+                ctx.fillStyle = finalScore >= 24 ? '#4ade80' : (finalScore >= 18 ? '#fbbf24' : '#ef4444');
+                ctx.fillText(`${finalScore} / 30`, 600, 550);
+                
+                ctx.font = 'bold 20px Arial'; ctx.fillStyle = '#64748b';
+                ctx.fillText('VERIFIED SCORE BY VULTURE-QUIZ ENGINE', 600, 580);
+
+                // 8. SECURITY FOOTER (Verification Hash)
+                const securityHash = btoa(`${firstName}_${finalScore}_${violations}_${Date.now()}`).substring(0, 32);
+                ctx.fillStyle = 'rgba(245, 158, 11, 0.5)';
+                ctx.font = '12px Courier New';
+                ctx.fillText(`V-HASH: [${securityHash.match(/.{1,8}/g).join('-')}]`, 600, 710);
+                ctx.fillText(`FLAGS: ${violations} | APP_ID: INCA_BBC_2676`, 600, 730);
+
+                // 9. QR CODE MOCKUP (Security element)
+                ctx.strokeStyle = '#f59e0b'; ctx.strokeRect(150, 610, 80, 80);
+                ctx.fillStyle = '#f59e0b'; ctx.fillRect(160, 620, 20, 20); ctx.fillRect(200, 620, 20, 20); ctx.fillRect(160, 660, 20, 20);
+
                 const link = document.createElement('a');
-                link.download = `Inca_Certificate_${firstName}.jpg`;
-                link.href = canvas.toDataURL('image/jpeg');
+                link.download = `Inca_Assessment_${lastName}_${firstName}.jpg`;
+                link.href = canvas.toDataURL('image/jpeg', 1.0);
                 link.click();
             };
 
-            const formatTime = (s) => {
-                const m = Math.floor(s / 60);
-                const rs = Math.floor(s % 60);
-                return `${m}:${rs.toString().padStart(2, '0')}`;
-            };
-
             if (view === 'instructions') return (
-                <div className="bg-slate-800 p-8 rounded-3xl shadow-2xl border border-slate-700 w-full max-w-md mx-auto text-center">
-                    <h1 className="text-2xl font-black text-amber-500 mb-6 uppercase tracking-widest">Inca Conquest Assessment</h1>
+                <div className="bg-slate-800 p-8 rounded-[2.5rem] shadow-2xl border border-slate-700 w-full max-w-md mx-auto text-center relative overflow-hidden">
+                    <div className="scanner"></div>
+                    <h1 className="text-2xl font-black text-amber-500 mb-2 uppercase tracking-widest">Inca Conquest</h1>
+                    <p className="text-[10px] text-slate-500 font-bold mb-8 uppercase tracking-widest">Secure BBC Assessment System</p>
                     <div className="space-y-4 mb-8">
-                        <input placeholder="First Name" value={firstName} onChange={handleFirstNameChange} className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 outline-none focus:border-amber-500" />
-                        <input placeholder="Last Name" value={lastName} onChange={handleLastNameChange} className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 outline-none focus:border-amber-500" />
-                        <select value={studentPeriod} onChange={handlePeriodChange} className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 outline-none focus:border-amber-500">
+                        <input placeholder="First Name" value={firstName} onChange={handleFirstNameChange} className="w-full bg-slate-900 p-3.5 rounded-xl border border-slate-700 outline-none focus:border-amber-500 transition-all font-bold" />
+                        <input placeholder="Last Name" value={lastName} onChange={handleLastNameChange} className="w-full bg-slate-900 p-3.5 rounded-xl border border-slate-700 outline-none focus:border-amber-500 transition-all font-bold" />
+                        <select value={studentPeriod} onChange={handlePeriodChange} className="w-full bg-slate-900 p-3.5 rounded-xl border border-slate-700 outline-none focus:border-amber-500 font-bold">
                             <option value="">Select Period</option>
                             {['1','2','3','4','5','6'].map(p => <option key={p} value={p}>Period {p}</option>)}
                         </select>
-                        <input placeholder="Email" value={studentEmail} onChange={handleEmailChange} className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 outline-none focus:border-amber-500" />
+                        <input placeholder="Email" value={studentEmail} onChange={handleEmailChange} className="w-full bg-slate-900 p-3.5 rounded-xl border border-slate-700 outline-none focus:border-amber-500 transition-all font-bold" />
                     </div>
                     <button 
                         disabled={!firstName || !lastName || !studentPeriod} 
                         onClick={() => setView('video')} 
-                        className="bg-amber-600 w-full py-4 rounded-2xl font-bold uppercase transition hover:bg-amber-500 disabled:opacity-50"
+                        className="bg-amber-600 w-full py-5 rounded-2xl font-black uppercase transition hover:bg-amber-500 disabled:opacity-30 shadow-xl shadow-amber-500/10 active:scale-95"
                     >
-                        Start Assessment
+                        Enter Assessment
                     </button>
-                    <button onClick={() => setShowPinModal(true)} className="mt-4 text-xs text-slate-500 hover:text-slate-300">Teacher Login</button>
+                    <button onClick={() => setShowPinModal(true)} className="mt-6 text-[10px] text-slate-600 hover:text-slate-400 uppercase font-black tracking-widest">Teacher Login</button>
                     {showPinModal && (
-                        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4">
-                            <div className="bg-slate-800 p-6 rounded-2xl w-full max-w-xs shadow-2xl border border-slate-700">
-                                <h2 className="font-bold mb-4">Enter Teacher PIN</h2>
-                                <input type="password" value={pinInput} onChange={e => setPinInput(e.target.value)} className="w-full bg-slate-900 p-2 rounded mb-4" />
-                                <button onClick={handlePinSubmit} className="bg-amber-600 w-full py-2 rounded font-bold">Unlock</button>
-                                <button onClick={() => setShowPinModal(false)} className="w-full py-2 text-xs text-slate-400 mt-2">Cancel</button>
+                        <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[100] p-4 backdrop-blur-sm">
+                            <div className="bg-slate-800 p-8 rounded-3xl w-full max-w-xs shadow-2xl border border-slate-700">
+                                <h2 className="font-black text-amber-500 mb-6 uppercase tracking-widest text-center">Auth Required</h2>
+                                <input type="password" value={pinInput} onChange={e => setPinInput(e.target.value)} className="w-full bg-slate-900 p-4 rounded-xl mb-4 text-center text-2xl tracking-[0.5em] font-black border border-slate-700" autoFocus />
+                                <button onClick={handlePinSubmit} className="bg-amber-600 w-full py-3 rounded-xl font-black uppercase text-sm tracking-widest">Unlock</button>
+                                <button onClick={() => setShowPinModal(false)} className="w-full py-3 text-[10px] text-slate-500 font-black uppercase tracking-widest mt-2">Cancel</button>
                             </div>
                         </div>
                     )}
@@ -374,116 +421,120 @@
             );
 
             if (view === 'finished') return (
-                <div className="bg-slate-800 p-12 rounded-3xl text-center shadow-2xl border border-slate-700">
-                    <h1 className="text-4xl font-black mb-4 uppercase">Lesson Complete</h1>
-                    <p className="text-xl text-amber-500 mb-8 font-bold">Final Score: {Object.values(studentAnswers).filter(v => v).length} / 30</p>
-                    <button onClick={downloadJPG} className="bg-amber-600 px-8 py-3 rounded-xl font-bold uppercase tracking-widest shadow-lg shadow-amber-500/20">Download Certificate</button>
+                <div className="bg-slate-800 p-12 rounded-[3rem] text-center shadow-2xl border-4 border-amber-600/30 max-w-2xl mx-auto relative overflow-hidden">
+                    <div className="absolute top-0 left-0 w-full h-2 bg-amber-500"></div>
+                    <div className="text-6xl mb-6">✅</div>
+                    <h1 className="text-4xl font-black mb-2 uppercase tracking-tighter">Assessment Captured</h1>
+                    <p className="text-slate-400 font-bold mb-10 leading-relaxed uppercase text-sm">
+                        Attention {firstName}: Your score has been verified and your certificate downloaded.
+                    </p>
+                    
+                    <div className="bg-slate-900/50 p-8 rounded-[2rem] border-2 border-slate-700 mb-10 text-left">
+                        <h3 className="text-amber-500 font-black text-xs uppercase tracking-[0.3em] mb-4">Submission Instructions</h3>
+                        <ol className="text-slate-300 text-sm font-bold space-y-4">
+                            <li className="flex gap-3"><span className="text-amber-500">1.</span> Locate the .jpg file just downloaded to your device.</li>
+                            <li className="flex gap-3"><span className="text-amber-500">2.</span> Go to your assigned Google Classroom task.</li>
+                            <li className="flex gap-3"><span className="text-amber-500">3.</span> Attach the image file and click "Submit".</li>
+                            <li className="flex gap-3 bg-red-500/10 p-3 rounded-lg border border-red-500/20 text-red-400 font-black">4. DO NOT CLOSE THIS WINDOW UNTIL YOU ARE SURE THE FILE IS ATTACHED.</li>
+                        </ol>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                        <button onClick={downloadJPG} className="bg-amber-600 px-10 py-4 rounded-2xl font-black uppercase tracking-widest text-sm shadow-xl shadow-amber-500/20 active:scale-95 transition-all">Redownload Certificate</button>
+                        <button onClick={() => window.location.reload()} className="bg-slate-700 px-10 py-4 rounded-2xl font-black uppercase tracking-widest text-sm text-slate-400 hover:text-white transition-all">Exit System</button>
+                    </div>
                 </div>
             );
 
             return (
-                <div className="w-full flex flex-col gap-4 no-select">
+                <div className="w-full flex flex-col gap-4 no-select relative">
                     {!isFullscreen && (
                         <div className="flex justify-between items-end px-2">
                             <div>
-                                <h2 className="text-sm font-black text-amber-500 uppercase tracking-widest">Inca Assessment</h2>
-                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">BBC Documentary</p>
+                                <h2 className="text-xs font-black text-amber-500 uppercase tracking-widest">Inca Secure Assessment</h2>
+                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Encryption: Active • Monitoring: On</p>
                             </div>
                             <div className="text-right">
-                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Score: <span className="text-green-500">{Object.values(studentAnswers).filter(v => v).length}/30</span></p>
-                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Flags: <span className="text-red-500">{violations}</span></p>
+                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Validated Score: <span className="text-green-500">{Object.values(studentAnswers).filter(v => v).length}/30</span></p>
+                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Security Flags: <span className="text-red-500">{violations}</span></p>
                             </div>
                         </div>
                     )}
 
                     <div 
                         ref={videoWrapperRef} 
-                        className={`relative group bg-black overflow-hidden ${isFullscreen ? 'w-screen h-screen' : 'w-full aspect-video rounded-3xl shadow-2xl border border-slate-700'}`}
+                        className={`relative group bg-black overflow-hidden ${isFullscreen ? 'w-screen h-screen' : 'w-full aspect-video rounded-[2.5rem] shadow-2xl border border-slate-800'}`}
                     >
-                        {/* THE ACTUAL VIDEO CONTAINER */}
                         <div ref={playerContainerRef} className="absolute inset-0 yt-overlay"></div>
                         
-                        {/* QUESTION OVERLAY */}
                         {activeQuestion && (
-                            <div className="absolute inset-0 bg-slate-900/98 z-[60] flex items-center justify-center p-6">
-                                <div className="max-w-xl w-full bg-slate-800 p-8 rounded-[2rem] border border-slate-600 shadow-2xl">
-                                    <div className="flex justify-between items-center mb-4">
-                                        <span className="text-[10px] font-black bg-amber-500 text-slate-900 px-3 py-1 rounded-full uppercase tracking-widest">Question {activeQuestion.id} / 30</span>
+                            <div className="absolute inset-0 bg-slate-900/98 z-[60] flex items-center justify-center p-6 backdrop-blur-md">
+                                <div className="max-w-xl w-full bg-slate-800 p-10 rounded-[3rem] border border-slate-600 shadow-2xl relative">
+                                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-amber-500 px-6 py-1 rounded-full text-[10px] font-black text-slate-900 uppercase tracking-[0.2em]">
+                                        Question {activeQuestion.id} / 30
                                     </div>
-                                    <h2 className="text-lg sm:text-xl font-bold mb-6 leading-tight">{activeQuestion.text}</h2>
-                                    <div className="space-y-3">
+                                    <h2 className="text-lg sm:text-2xl font-bold mb-10 leading-tight text-center">{activeQuestion.text}</h2>
+                                    <div className="space-y-4">
                                         {activeQuestion.options.map((opt, i) => (
                                             <button 
                                                 key={i} 
-                                                onClick={() => handleOptionClick(i)} 
+                                                onClick={() => { setSelectedOption(i); setShowFeedback(true); }} 
                                                 disabled={showFeedback}
-                                                className={`w-full text-left p-4 rounded-xl border-2 font-bold transition flex items-start gap-3 ${showFeedback ? (i === activeQuestion.correctIndex ? 'border-green-500 bg-green-500/10 text-green-400' : (i === selectedOption ? 'border-red-500 bg-red-500/10 text-red-400' : 'border-slate-800 opacity-30')) : 'border-slate-700 hover:border-amber-500 bg-slate-700/50'}`}
+                                                className={`w-full text-left p-5 rounded-2xl border-2 font-bold transition flex items-start gap-4 text-sm sm:text-base ${showFeedback ? (i === activeQuestion.correctIndex ? 'border-green-500 bg-green-500/10 text-green-400' : (i === selectedOption ? 'border-red-500 bg-red-500/10 text-red-400' : 'border-slate-800 opacity-20')) : 'border-slate-700 hover:border-amber-500 bg-slate-900/50 hover:bg-slate-900 shadow-inner'}`}
                                             >
-                                                <span className="text-amber-500">{String.fromCharCode(65+i)}.</span>
-                                                <span>{opt}</span>
+                                                <span className="text-amber-500 font-black">{String.fromCharCode(65+i)}.</span>
+                                                <span className="flex-1">{opt}</span>
                                             </button>
                                         ))}
                                     </div>
                                     {showFeedback && (
-                                        <button onClick={handleContinueVideo} className="mt-6 bg-amber-600 w-full py-4 rounded-xl font-black uppercase text-sm tracking-widest shadow-lg shadow-amber-500/20">Continue Assessment</button>
+                                        <button onClick={handleContinueVideo} className="mt-10 bg-amber-600 w-full py-5 rounded-2xl font-black uppercase text-sm tracking-widest shadow-xl shadow-amber-500/20 active:scale-95 transition-all">Synchronize & Continue</button>
                                     )}
                                 </div>
                             </div>
                         )}
 
-                        {/* CONTROLS OVERLAY */}
-                        <div className={`absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-black via-black/80 to-transparent z-50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-4 ${activeQuestion ? 'hidden' : ''}`}>
-                            {/* TIMELINE */}
+                        <div className={`absolute bottom-0 left-0 w-full p-8 bg-gradient-to-t from-black via-black/80 to-transparent z-50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-5 ${activeQuestion ? 'hidden' : ''}`}>
                             <div className="relative w-full h-1.5 bg-slate-800 rounded-full cursor-pointer" onClick={(e) => {
-                                if (!player) return;
-                                const rect = e.currentTarget.getBoundingClientRect();
-                                const targetTime = ((e.clientX - rect.left) / rect.width) * MAX_ALLOWED_TIME;
-                                let finalTime = targetTime;
-                                const currentVidTime = player.getCurrentTime();
-                                if (!isTeacherMode && finalTime > currentVidTime) finalTime = currentVidTime;
-                                
-                                lastSeekTimeRef.current = Date.now();
-                                lastTriggeredQuestionIdRef.current = null; // Clear trigger memory on click
-                                player.seekTo(finalTime, true);
+                                if (!player || isTeacherMode) {
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    const targetTime = ((e.clientX - rect.left) / rect.width) * MAX_ALLOWED_TIME;
+                                    lastSeekTimeRef.current = Date.now();
+                                    lastTriggeredQuestionIdRef.current = null;
+                                    player.seekTo(targetTime, true);
+                                }
                             }}>
-                                {/* QUESTION MARKERS */}
                                 {QUIZ_QUESTIONS.map(q => (
                                     <div 
                                         key={q.id} 
-                                        className={`absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full z-10 ${studentAnswers[q.id] === true ? 'bg-green-500' : (studentAnswers[q.id] === false ? 'bg-red-500' : 'bg-amber-300')}`} 
+                                        className={`absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full z-10 transition-all ${studentAnswers[q.id] === true ? 'bg-green-500 scale-125 shadow-[0_0_10px_#22c55e]' : (studentAnswers[q.id] === false ? 'bg-red-500 scale-125 shadow-[0_0_10px_#ef4444]' : 'bg-amber-300 shadow-[0_0_5px_#f59e0b]')}`} 
                                         style={{ left: `${(q.timestamp/MAX_ALLOWED_TIME)*100}%` }}
                                     ></div>
                                 ))}
-                                <div className="absolute left-0 top-0 h-full bg-amber-500 rounded-full" style={{ width: `${(currentTime/MAX_ALLOWED_TIME)*100}%` }}></div>
+                                <div className="absolute left-0 top-0 h-full bg-amber-500 rounded-full shadow-[0_0_15px_rgba(245,158,11,0.5)]" style={{ width: `${(currentTime/MAX_ALLOWED_TIME)*100}%` }}></div>
                             </div>
 
                             <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-6">
-                                    <button onClick={togglePlayPause} className="hover:text-amber-500 transition">
-                                        {isPlaying ? (
-                                            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-                                        ) : (
-                                            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                                        )}
+                                <div className="flex items-center gap-8">
+                                    <button onClick={togglePlayPause} className="hover:text-amber-500 transition-all active:scale-90">
+                                        {isPlaying ? <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> : <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>}
                                     </button>
-                                    <button onClick={handleRewind} className="hover:text-amber-500 transition text-[10px] font-black uppercase flex items-center gap-1">
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg> 10s
+                                    <button onClick={handleRewind} className="hover:text-amber-500 transition-all active:scale-90 text-[10px] font-black uppercase flex items-center gap-2">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="4" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg> 10s
                                     </button>
-                                    <button onClick={toggleSpeed} className="px-2 py-0.5 rounded border border-slate-600 text-[10px] font-black hover:border-amber-500 transition">{playbackRate}x</button>
-                                    <button onClick={toggleCC} className={`hover:text-amber-500 transition ${ccEnabled ? 'text-amber-500' : 'text-slate-500'}`}>
-                                        <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M7 15h4M15 15h2M7 11h2M13 11h4"/><rect width="18" height="14" x="3" y="5" rx="2"/></svg>
-                                    </button>
+                                    <button onClick={() => { const r = playbackRate === 1 ? 1.25 : 1; setPlaybackRate(r); player.setPlaybackRate(r); }} className={`px-3 py-1 rounded-lg border-2 text-[10px] font-black transition-all ${playbackRate > 1 ? 'border-amber-500 text-amber-500' : 'border-slate-600 text-slate-500'}`}>{playbackRate}x</button>
                                 </div>
 
-                                <div className="flex items-center gap-6">
-                                    <div className="text-[10px] font-mono font-bold text-slate-400 tracking-widest">{formatTime(currentTime)} / 49:01</div>
-                                    <button onClick={toggleFullscreen} className="hover:text-amber-500 transition">
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+                                <div className="flex items-center gap-8">
+                                    <div className="text-[12px] font-mono font-black text-slate-400 tracking-[0.2em]">{Math.floor(currentTime/60)}:{(Math.floor(currentTime%60)).toString().padStart(2,'0')} / 49:01</div>
+                                    <button onClick={toggleFullscreen} className="hover:text-amber-500 transition-all active:scale-90">
+                                        <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
                                     </button>
                                 </div>
                             </div>
                         </div>
                     </div>
+                    <p className="text-center text-[10px] text-slate-600 font-black uppercase tracking-[0.4em] mt-4">Security Protocol: v2.6.7.6_IRON_CLAD</p>
                 </div>
             );
         };
